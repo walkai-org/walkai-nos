@@ -17,4 +17,4 @@ kind: Kustomization
 images:
 - name: gpu-partitioner
   newName: ghcr.io/saguirregaray1/nos-gpu-partitioner
-  newTag: 0.0.5
+  newTag: 0.0.6

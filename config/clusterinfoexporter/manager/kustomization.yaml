@@ -7,4 +7,4 @@ kind: Kustomization
 images:
   - name: cluster-info-exporter
     newName: ghcr.io/saguirregaray1/nos-cluster-info-exporter
-    newTag: 0.0.5
+    newTag: 0.0.6

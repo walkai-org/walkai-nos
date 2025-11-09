@@ -53,7 +53,8 @@ func NewClient(resourceClient resource.Client, nvmlClient nvml.Client) Client {
 // CreateMigResources still tries to create the resources on the other GPUs and returns the ones that
 // it possible to create. This means that if any error happens, the returned ProfileList will be a subset
 // of the input list, otherwise the two lists will have the same length and items.
-func (c clientImpl) CreateMigDevices(_ context.Context, profileList ProfileList) (ProfileList, error) {
+func (c clientImpl) CreateMigDevices(ctx context.Context, profileList ProfileList) (ProfileList, error) {
+	logger := klog.FromContext(ctx)
 	var errors = make(gpu.ErrorList, 0)
 	var createdProfiles = make(ProfileList, 0)
 	for gpuIndex, profiles := range profileList.GroupByGPU() {
@@ -63,6 +64,14 @@ func (c clientImpl) CreateMigDevices(_ context.Context, profileList ProfileList)
 		}
 		if err := c.nvmlClient.CreateMigDevices(profileNames, gpuIndex); err != nil {
 			errors = append(errors, err)
+			logger.Error(
+				err,
+				"unable to create MIG devices on GPU",
+				"gpuIndex",
+				gpuIndex,
+				"profiles",
+				profiles,
+			)
 			continue
 		}
 		createdProfiles = append(createdProfiles, profiles...)
