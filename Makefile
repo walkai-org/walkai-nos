@@ -1,5 +1,5 @@
 # nos version. Used by release workflow, do not move this line.
-NOS_VERSION ?= 0.0.5
+NOS_VERSION ?= 0.0.6
 
 DOCKER_REGISTRY ?= ghcr.io/saguirregaray1
 

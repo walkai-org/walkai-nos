@@ -179,10 +179,10 @@ func (a *MigActuator) apply(ctx context.Context, plan plan.MigConfigPlan) (ctrl.
 	// Apply create operations
 	status := a.applyCreateOps(ctx, plan.CreateOperations)
 	if status.Err != nil {
+		logger.Error(status.Err, "unable to fulfill create operations")
 		if len(deletedProfiles) > 0 {
 			a.rollbackDeletedResources(ctx, deletedProfiles)
 		}
-		logger.Error(status.Err, "unable to fulfill create operations")
 		atLeastOneErr = true
 	}
 	if status.PluginRestartRequired {
