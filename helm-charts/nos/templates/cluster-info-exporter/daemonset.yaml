@@ -1,0 +1,74 @@
+{{- if .Values.clusterInfoExporter.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ include "clusterInfoExporter.fullname" . }}
+  labels:
+    {{- include "clusterInfoExporter.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "clusterInfoExporter.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "clusterInfoExporter.selectorLabels" . | nindent 8 }}
+      {{- with .Values.clusterInfoExporter.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "clusterInfoExporter.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 30
+      {{- with .Values.clusterInfoExporter.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: cluster-info-exporter
+          image: "{{ .Values.clusterInfoExporter.image.repository }}:{{ .Values.clusterInfoExporter.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.clusterInfoExporter.image.pullPolicy }}
+          args:
+            - --endpoint=$(ENDPOINT)
+            - --interval=$(INTERVAL)
+            - --http-timeout=$(HTTP_TIMEOUT)
+            - --api-token=$(API_TOKEN)
+          env:
+            - name: ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "clusterInfoExporter.configMapName" . }}
+                  key: endpoint
+            - name: INTERVAL
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "clusterInfoExporter.configMapName" . }}
+                  key: interval
+            - name: HTTP_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "clusterInfoExporter.configMapName" . }}
+                  key: httpTimeout
+            - name: API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "clusterInfoExporter.secretName" . }}
+                  key: {{ .Values.clusterInfoExporter.secret.key }}
+                  optional: true
+          resources:
+            {{- toYaml .Values.clusterInfoExporter.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.clusterInfoExporter.securityContext | nindent 12 }}
+      {{- with .Values.clusterInfoExporter.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clusterInfoExporter.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.clusterInfoExporter.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,8 @@
+{{- if and .Values.clusterInfoExporter.enabled .Values.clusterInfoExporter.apiClient.enabled .Values.clusterInfoExporter.apiClient.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ include "clusterInfoExporter.apiClientNamespace" . }}
+  labels:
+    {{- include "clusterInfoExporter.labels" . | nindent 4 }}
+{{- end }}

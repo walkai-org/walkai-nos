@@ -86,6 +86,12 @@ kubectl create namespace nos-system
 kubectl create secret generic cluster-info-exporter-secrets -n nos-system --from-literal=apiToken='<token>'
 ```
 
+### API client RBAC and token
+The clusterinfoexporter kustomization now also provisions the `walkai` namespace together with an `api-client` service account, the `discovery-minimal` and `admin` ClusterRoleBindings, and the long-lived `api-client-permanent-token` Secret. After the manifests are applied you can retrieve the token that your API needs with:
+```bash
+kubectl get secret api-client-permanent-token -n walkai   -o jsonpath='{.data.token}' | base64 -d; echo
+```
+
 ```bash
 kubectl apply -k config/migagent/default
 kubectl apply -k config/gpupartitioner/default

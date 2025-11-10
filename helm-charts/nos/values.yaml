@@ -11,147 +11,6 @@ allowDefaultNamespace: false
 
 # -- If true, shares with Nebuly telemetry data collected only during the Chart installation
 shareTelemetry: true
-
-
-
-operator:
-  # -- Enable or disable the `nos operator`
-  enabled: true
-
-  # -- Number of replicas of the controller manager Pod.
-  replicaCount: 1
-
-  # -- The level of log of the controller manager.
-  # Zero corresponds to `info`, while values greater or equal than 1 corresponds to higher debug levels.
-  # **Must be >= 0**.
-  logLevel: 0
-
-  nameOverride: ""
-  fullnameOverride: ""
-
-  image:
-    # -- Sets the operator Docker repository
-    repository: ghcr.io/nebuly-ai/nos-operator
-    # -- Overrides the operator Docker image tag whose default is the chart appVersion.
-    tag: ""
-    # -- Sets the operator Docker image pull policy.
-    pullPolicy: IfNotPresent
-
-  # -- Configuration of the [Kube RBAC Proxy](https://github.com/brancz/kube-rbac-proxy), which runs as sidecar of
-  # the operator Pods.
-  # @default -- -
-  kubeRbacProxy:
-    logLevel: 1
-    image:
-      repository: gcr.io/kubebuilder/kube-rbac-proxy
-      pullPolicy: IfNotPresent
-      tag: "v0.13.0"
-    resources:
-      limits:
-        cpu: 500m
-        memory: 128Mi
-      requests:
-        cpu: 5m
-        memory: 64Mi
-
-  leaderElection:
-    # -- Enables/Disables the leader election of the operator controller manager.
-    enabled: true
-
-  # -- Sets the security context of the operator Pod.
-  podSecurityContext:
-    runAsNonRoot: true
-
-  # -- Sets the security context of the operator container.
-  securityContext:
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-
-  # -- Sets the resource limits and requests of the operator controller manager container.
-  resources:
-    limits:
-      cpu: 500m
-      memory: 128Mi
-    requests:
-      cpu: 10m
-      memory: 64Mi
-
-  # -- Sets the annotations of the operator Pod.
-  podAnnotations: { }
-
-  # -- Sets the tolerations of the operator Pod.
-  tolerations: [ ]
-
-  # -- Sets the affinity config of the operator Pod.
-  affinity: { }
-
-  # -- Sets the nodeSelector config of the operator Pod.
-  nodeSelector: { }
-
-
-
-scheduler:
-  # -- Enable or disable the `nos scheduler`
-  enabled: true
-
-  # -- The level of log of the scheduler.
-  # Zero corresponds to `info`, while values greater or equal than 1 corresponds to higher debug levels.
-  # **Must be >= 0**.
-  logLevel: 0
-
-  # -- Overrides the Kube Scheduler configuration
-  config: { }
-
-  # -- Number of replicas of the scheduler.
-  replicaCount: 1
-
-  nameOverride: ""
-  fullnameOverride: ""
-
-  image:
-    # -- Sets Docker image.
-    repository: ghcr.io/nebuly-ai/nos-scheduler
-    # -- Sets Docker image pull policy.
-    pullPolicy: IfNotPresent
-    # -- Overrides the image tag whose default is the chart appVersion.
-    tag: ""
-
-  leaderElection:
-    # -- Enables/Disables the leader election when deployed with multiple replicas.
-    enabled: true
-
-  # -- Sets the resource limits and requests of the scheduler container.
-  resources:
-    limits:
-      cpu: 500m
-      memory: 128Mi
-    requests:
-      cpu: 10m
-      memory: 64Mi
-
-  # -- Sets the annotations of the scheduler Pod.
-  podAnnotations: { }
-
-  # -- Sets the tolerations of the scheduler deployment.
-  tolerations: [ ]
-
-  # -- Sets the affinity config of the scheduler deployment.
-  affinity: { }
-
-  # -- Sets the nodeSelector config of the scheduler deployment.
-  nodeSelector: { }
-
-  # -- Sets the security context of the scheduler container
-  securityContext:
-    privileged: false
-
-  # -- Sets the security context of the scheduler Pod
-  podSecurityContext: { }
-
-
-
 gpuPartitioner:
   # -- Enable or disable the `nos gpu partitioner`
   enabled: true
@@ -189,7 +48,7 @@ gpuPartitioner:
 
   image:
     # -- Sets the GPU Partitioner Docker image.
-    repository: ghcr.io/nebuly-ai/nos-gpu-partitioner
+    repository: ghcr.io/walkai-org/nos-gpu-partitioner
     # -- Sets the GPU Partitioner Docker image pull policy.
     pullPolicy: IfNotPresent
     # -- Overrides the GPU Partitioner image tag whose default is the chart appVersion.
@@ -206,7 +65,7 @@ gpuPartitioner:
     logLevel: 0
     image:
       # -- Sets the MIG Agent Docker image.
-      repository: ghcr.io/nebuly-ai/nos-mig-agent
+      repository: ghcr.io/walkai-org/nos-mig-agent
       # -- Sets the MIG Agent Docker image pull policy.
       pullPolicy: IfNotPresent
       # -- Overrides the MIG Agent image tag whose default is the chart appVersion.
@@ -236,7 +95,7 @@ gpuPartitioner:
     runtimeClassName:
     image:
       # -- Sets the GPU Agent Docker image.
-      repository: ghcr.io/nebuly-ai/nos-gpu-agent
+      repository: ghcr.io/walkai-org/nos-gpu-agent
       # -- Sets the GPU Agent Docker image pull policy.
       pullPolicy: IfNotPresent
       # -- Overrides the GPU Agent image tag whose default is the chart appVersion.
@@ -376,3 +235,109 @@ gpuPartitioner:
           2g.20gb: 1
           4g.40gb: 1
         - 7g.79gb: 1
+
+
+clusterInfoExporter:
+  # -- Enable or disable the Cluster Info Exporter DaemonSet
+  enabled: true
+
+  # -- Overrides the name of the Cluster Info Exporter resources.
+  nameOverride: ""
+  # -- Overrides the fully qualified name of the Cluster Info Exporter resources.
+  fullnameOverride: ""
+
+  image:
+    # -- Repository of the Cluster Info Exporter image.
+    repository: ghcr.io/walkai-org/nos-cluster-info-exporter
+    # -- Image pull policy of the Cluster Info Exporter container.
+    pullPolicy: IfNotPresent
+    # -- Overrides the Cluster Info Exporter image tag whose default is the chart appVersion.
+    tag: ""
+
+  config:
+    # -- API endpoint that receives cluster information payloads
+    endpoint: https://logical-overly-vulture.ngrok-free.app/cluster/insights
+    # -- Interval between reports (e.g. 10s, 5m)
+    interval: 10s
+    # -- HTTP timeout for report requests
+    httpTimeout: 10s
+
+  # -- Configuration of the ServiceAccount used by the Cluster Info Exporter.
+  # @default -- -
+  serviceAccount:
+    # -- Whether to create the ServiceAccount.
+    create: true
+    # -- Extra annotations added to the ServiceAccount.
+    annotations: { }
+    # -- Overrides the ServiceAccount name.
+    name: ""
+
+  # -- Configuration of the Secret that stores the API token consumed by the exporter.
+  # @default -- -
+  secret:
+    # -- When true the chart will create the Secret that stores the API token
+    create: false
+    # -- Name of the Secret that stores the API token (created or pre-existing)
+    name: cluster-info-exporter-secrets
+    # -- Use an already existing Secret instead of creating a new one (takes precedence over `name`)
+    existingSecret: ""
+    # -- Key that stores the token inside the Secret
+    key: apiToken
+    # -- Value used when creating the Secret (ignored otherwise)
+    apiToken: ""
+
+  # -- Annotations added to the Cluster Info Exporter Pods.
+  podAnnotations: { }
+  # -- Node selector for the Cluster Info Exporter Pods.
+  nodeSelector: { }
+  # -- Affinity rules for the Cluster Info Exporter Pods.
+  affinity: { }
+
+  # -- Pod security context for the Cluster Info Exporter Pods.
+  podSecurityContext:
+    runAsNonRoot: true
+
+  # -- Container security context for the Cluster Info Exporter container.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+
+  # -- Resource requests and limits for the Cluster Info Exporter container.
+  resources:
+    limits:
+      cpu: 200m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
+  # -- Tolerations applied to the Cluster Info Exporter Pods.
+  tolerations:
+    - key: "node-role.kubernetes.io/master"
+      operator: "Exists"
+      effect: "NoSchedule"
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+
+  # -- Configuration of the API client namespace, ServiceAccount, RBAC settings and token Secret.
+  # @default -- -
+  apiClient:
+    # -- Enable or disable provisioning of the API client resources.
+    enabled: true
+    # -- Namespace where the API client ServiceAccount and token Secret live.
+    namespace: walkai
+    # -- Whether the chart should create the namespace defined above.
+    createNamespace: true
+    # -- Name of the API client ServiceAccount.
+    serviceAccountName: api-client
+    # -- Name of the long-lived ServiceAccount token Secret for the API client.
+    tokenSecretName: api-client-permanent-token
+    # -- Name of the discovery ClusterRole granted to the API client.
+    discoveryClusterRoleName: discovery-minimal
+    # -- Name of the ClusterRoleBinding that assigns the discovery ClusterRole.
+    discoveryClusterRoleBindingName: discovery-minimal-for-walkai-api-client
+    # -- Name of the RoleBinding that grants the admin ClusterRole inside the API client namespace.
+    adminRoleBindingName: walkai-api-client-admin
+    # -- ClusterRole granted by the admin RoleBinding.
+    adminClusterRoleName: admin

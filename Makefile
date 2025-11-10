@@ -1,7 +1,7 @@
 # nos version. Used by release workflow, do not move this line.
-NOS_VERSION ?= 0.0.6
+NOS_VERSION ?= 0.0.1
 
-DOCKER_REGISTRY ?= ghcr.io/saguirregaray1
+DOCKER_REGISTRY ?= ghcr.io/walkai-org
 
 # Image URLs to build/push Docker image targets
 GPU_PARTITIONER_IMG ?= $(DOCKER_REGISTRY)/nos-gpu-partitioner:$(NOS_VERSION)
@@ -11,7 +11,7 @@ METRICS_EXPORTER_IMG ?= $(DOCKER_REGISTRY)/nos-metrics-exporter:$(NOS_VERSION)
 CLUSTER_INFO_EXPORTER_IMG ?= $(DOCKER_REGISTRY)/nos-cluster-info-exporter:$(NOS_VERSION)
 
 # Helm chart URL to push Helm charts
-HELM_CHART_REGISTRY ?= oci://ghcr.io/nebuly-ai/helm-charts
+HELM_CHART_REGISTRY ?= oci://ghcr.io/walkai-org/helm-charts
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.24.2

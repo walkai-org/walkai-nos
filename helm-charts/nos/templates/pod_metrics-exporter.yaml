@@ -11,7 +11,7 @@ spec:
   restartPolicy: Never
   containers:
     - name: exporter
-      image: "ghcr.io/nebuly-ai/nos-metrics-exporter:{{ .Chart.AppVersion }}"
+      image: "ghcr.io/walkai-org/nos-metrics-exporter:{{ .Chart.AppVersion }}"
       args:
         - --metrics-file=/var/metrics.yaml
         - --metrics-endpoint=https://nebuly.cloud/v1/nos-metrics

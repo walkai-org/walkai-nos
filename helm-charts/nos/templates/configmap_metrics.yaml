@@ -59,7 +59,8 @@ data:
     chartValues:
       {{- .Values | toYaml | nindent 6 }}
     components:
+      nosClusterInfoExporter: {{ index $.Values "clusterInfoExporter" "enabled" }}
       nosGpuPartitioner: {{ index $.Values "gpuPartitioner" "enabled" }}
-      nosOperator: {{ index $.Values "operator" "enabled" }}
-      nosScheduler: {{ index $.Values "scheduler" "enabled" }}
+      nosMigAgent: {{ index $.Values "gpuPartitioner" "enabled" }}
+      nosGpuAgent: {{ index $.Values "gpuPartitioner" "enabled" }}
 {{- end -}}

@@ -1,0 +1,12 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: discovery-minimal-for-walkai-api-client
+subjects:
+  - kind: ServiceAccount
+    name: api-client
+    namespace: walkai
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: discovery-minimal

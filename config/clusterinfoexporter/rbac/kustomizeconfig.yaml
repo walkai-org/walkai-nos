@@ -2,7 +2,7 @@ nameReference:
 - kind: ServiceAccount
   version: v1
   fieldSpecs:
-  - kind: ClusterRoleBinding
+  - path: subjects/name
+    kind: ClusterRoleBinding
     group: rbac.authorization.k8s.io
     version: v1
-    path: subjects/name
