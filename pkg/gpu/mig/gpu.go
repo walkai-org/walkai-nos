@@ -160,30 +160,47 @@ func (g *GPU) ApplyGeometry(geometry gpu.Geometry) error {
 func (g *GPU) UpdateGeometryFor(requiredProfiles map[gpu.Slice]int) bool {
 	currentGeometry := g.GetGeometry()
 	var (
-		bestGeometry     *gpu.Geometry
-		bestScore        geometrySelectionScore
-		bestScoreDefined bool
+		bestGeometry *gpu.Geometry
+		maxProvided  int
 	)
 
 	for _, candidate := range g.GetAllowedGeometries() {
+		// If we cannot apply the geometry, then skip it
 		if canApplyGeometry, _ := g.CanApplyGeometry(candidate); !canApplyGeometry {
 			continue
 		}
-		provided := g.countProvidedProfiles(candidate, requiredProfiles, currentGeometry)
+
+		provided := 0
+		for requiredProfile, requiredQuantity := range requiredProfiles {
+			requiredMigProfile, ok := requiredProfile.(ProfileName)
+			if !ok {
+				continue
+			}
+
+			currentFree := g.freeMigDevices[requiredMigProfile]
+			// If GPU already provides the profile resources then there's nothing to do
+			if currentFree >= requiredQuantity {
+				continue
+			}
+
+			needed := requiredQuantity - currentFree
+
+			additionalCapacity := candidate[requiredProfile] - currentGeometry[requiredProfile]
+			if additionalCapacity <= 0 {
+				continue
+			}
+
+			provided += util.Min(additionalCapacity, needed)
+		}
+
 		if provided <= 0 {
 			continue
 		}
-		score := geometrySelectionScore{
-			providedProfiles: provided,
-			geometryDistance: geometryDistance(currentGeometry, candidate),
-			totalSlices:      totalSliceCount(candidate),
-			geometryID:       candidate.Id(),
-		}
-		if !bestScoreDefined || isBetterGeometryScore(score, bestScore) {
+
+		if bestGeometry == nil || provided > maxProvided {
 			candidateCopy := candidate
 			bestGeometry = &candidateCopy
-			bestScore = score
-			bestScoreDefined = true
+			maxProvided = provided
 		}
 	}
 
@@ -191,80 +208,12 @@ func (g *GPU) UpdateGeometryFor(requiredProfiles map[gpu.Slice]int) bool {
 		return false
 	}
 
+	if cmp.Equal(*bestGeometry, currentGeometry) {
+		return false
+	}
+
 	_ = g.ApplyGeometry(*bestGeometry)
 	return true
-}
-
-func (g *GPU) countProvidedProfiles(
-	candidate gpu.Geometry,
-	requiredProfiles map[gpu.Slice]int,
-	currentGeometry gpu.Geometry,
-) int {
-	var provided int
-	for requiredProfile, requiredQuantity := range requiredProfiles {
-		requiredMigProfile, ok := requiredProfile.(ProfileName)
-		if !ok {
-			continue
-		}
-		if g.freeMigDevices[requiredMigProfile] >= requiredQuantity {
-			continue
-		}
-		needed := requiredQuantity - g.freeMigDevices[requiredMigProfile]
-		if needed <= 0 {
-			continue
-		}
-		additionalCapacity := candidate[requiredMigProfile] - currentGeometry[requiredMigProfile]
-		if additionalCapacity <= 0 {
-			continue
-		}
-		provided += util.Min(additionalCapacity, needed)
-	}
-	return provided
-}
-
-type geometrySelectionScore struct {
-	providedProfiles int
-	totalSlices      int
-	geometryDistance int
-	geometryID       string
-}
-
-func isBetterGeometryScore(candidate, current geometrySelectionScore) bool {
-	if candidate.providedProfiles != current.providedProfiles {
-		return candidate.providedProfiles > current.providedProfiles
-	}
-	if candidate.totalSlices != current.totalSlices {
-		return candidate.totalSlices > current.totalSlices
-	}
-	if candidate.geometryDistance != current.geometryDistance {
-		return candidate.geometryDistance < current.geometryDistance
-	}
-	return candidate.geometryID < current.geometryID
-}
-
-func geometryDistance(current, candidate gpu.Geometry) int {
-	sum := 0
-	seen := make(map[gpu.Slice]struct{}, len(current))
-	for profile, currentCount := range current {
-		seen[profile] = struct{}{}
-		candidateCount := candidate[profile]
-		sum += util.Abs(candidateCount - currentCount)
-	}
-	for profile, candidateCount := range candidate {
-		if _, ok := seen[profile]; ok {
-			continue
-		}
-		sum += util.Abs(candidateCount)
-	}
-	return sum
-}
-
-func totalSliceCount(geometry gpu.Geometry) int {
-	sum := 0
-	for _, count := range geometry {
-		sum += count
-	}
-	return sum
 }
 
 // AllowsGeometry returns true if the geometry provided as argument is allowed by the GPU model
