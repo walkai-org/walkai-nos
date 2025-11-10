@@ -37,14 +37,15 @@ jobs:
           go-version: 1.24.2
           cache: true
 
-      - name: Test
-        run: make test
-
       - name: Lint
         uses: golangci/golangci-lint-action@v6
         with:
           skip-pkg-cache: true
           skip-build-cache: true
+
+      - name: Test
+        run: make test
+
 
   publish-images:
     name: Build and Push Images

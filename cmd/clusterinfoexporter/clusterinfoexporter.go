@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"time"
@@ -125,6 +126,14 @@ func sendSnapshot(
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
+		if resp.StatusCode == http.StatusBadRequest || resp.StatusCode == http.StatusUnprocessableEntity {
+			bodyBytes, readErr := io.ReadAll(resp.Body)
+			if readErr != nil {
+				logger.Error(readErr, "failed to read response body", "statusCode", resp.StatusCode)
+			} else if len(bodyBytes) > 0 {
+				logger.Info("received error response body", "statusCode", resp.StatusCode, "body", string(bodyBytes))
+			}
+		}
 		return fmt.Errorf("unexpected status code %s", resp.Status)
 	}
 
