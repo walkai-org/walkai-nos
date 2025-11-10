@@ -29,31 +29,57 @@ jobs:
     name: Test and Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v3
+        uses: actions/setup-go@v5
         with:
-          go-version: 1.19
+          go-version: 1.24.2
           cache: true
-
-      - name: Check license header
-        uses: apache/skywalking-eyes@v0.4.0
 
       - name: Test
         run: make test
 
       - name: Lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
           skip-pkg-cache: true
           skip-build-cache: true
 
-      - name: Upload coverage report
-        uses: codecov/codecov-action@v2
+  publish-images:
+    name: Build and Push Images
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
         with:
-          file: ./cover.out
-          flags: unittests
-          name: codecov-umbrella
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}  
 
+      - name: Build images
+        run: make docker-build
 
+      - name: Push images
+        run: make docker-push
+
+      - name: Set up Helm
+        uses: Azure/setup-helm@v3
+        with:
+          version: v3.10.3
+
+      - name: Helm login
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+        
+      - name: Push Helm charts
+        run: make helm-push
