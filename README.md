@@ -42,9 +42,9 @@ You can install `nos` using Helm 3 (recommended).
 You can find all the available configuration values in the Chart [documentation](https://nebuly-ai.github.io/nos/helm-charts/nos/).
 
 ```bash
-helm install oci://ghcr.io/nebuly-ai/helm-charts/nos \
-  --version 0.1.2 \
-  --namespace nebuly-nos \
+helm install oci://ghcr.io/walkai-org/helm-charts/nos \
+  --version 0.0.1 \
+  --namespace nos-system \
   --generate-name \
   --create-namespace
 ```

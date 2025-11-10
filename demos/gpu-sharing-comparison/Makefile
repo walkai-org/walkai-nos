@@ -60,14 +60,6 @@ NOS_VERSION ?= 0.1.2
 install-cert-manager:
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.10.0/cert-manager.yaml
 
-.PHONY: install-nebuly-device-plugin
-install-nebuly-device-plugin:
-	helm upgrade --install nebuly-devcice-plugin \
-	  oci://ghcr.io/nebuly-ai/helm-charts/nvidia-device-plugin \
-	  --version 0.13.0 \
-	  -n nebuly-nvidia \
-	  --create-namespace \
-
 .PHONY: install-nos
 install-nos:
 	helm upgrade --install nebuly-nos oci://ghcr.io/nebuly-ai/helm-charts/nos  \

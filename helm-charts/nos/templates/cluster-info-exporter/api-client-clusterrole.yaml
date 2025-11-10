@@ -1,0 +1,17 @@
+{{- if and .Values.clusterInfoExporter.enabled .Values.clusterInfoExporter.apiClient.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "clusterInfoExporter.discoveryClusterRoleName" . }}
+  labels:
+    {{- include "clusterInfoExporter.labels" . | nindent 4 }}
+rules:
+  - nonResourceURLs:
+      - /api
+      - /api/*
+      - /apis
+      - /apis/*
+      - /version
+    verbs:
+      - get
+{{- end }}

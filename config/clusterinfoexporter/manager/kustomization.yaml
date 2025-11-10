@@ -9,5 +9,5 @@ resources:
 
 images:
   - name: cluster-info-exporter
-    newName: ghcr.io/saguirregaray1/nos-cluster-info-exporter
-    newTag: 0.0.6
+    newName: ghcr.io/walkai-org/nos-cluster-info-exporter
+    newTag: 0.0.1

@@ -1,0 +1,12 @@
+{{- if .Values.clusterInfoExporter.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "clusterInfoExporter.configMapName" . }}
+  labels:
+    {{- include "clusterInfoExporter.labels" . | nindent 4 }}
+data:
+  endpoint: {{ quote .Values.clusterInfoExporter.config.endpoint }}
+  interval: {{ quote .Values.clusterInfoExporter.config.interval }}
+  httpTimeout: {{ quote .Values.clusterInfoExporter.config.httpTimeout }}
+{{- end }}
