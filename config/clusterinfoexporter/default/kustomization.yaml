@@ -1,8 +1,4 @@
-namespace: nos-system
-namePrefix: nos-
-
 resources:
   - ../rbac
   - ../manager
-configurations:
-  - ./kustomizeconfig.yaml
+  - ../api-client

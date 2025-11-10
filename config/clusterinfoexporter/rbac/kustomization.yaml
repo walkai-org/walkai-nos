@@ -1,4 +1,10 @@
+namespace: nos-system
+namePrefix: nos-
+
 resources:
   - service_account.yaml
   - role.yaml
   - role_binding.yaml
+
+configurations:
+  - ./kustomizeconfig.yaml
