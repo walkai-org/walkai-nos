@@ -1,11 +1,14 @@
 # Overview
 
-`nos` is the open-source module for running AI workloads on Kubernetes in an optimized way, increasing GPU utilization, cutting down infrastructure costs and improving workloads performance.
+`walk:ai` is an open-source platform for running AI/ML workloads on Kubernetes in an intuitive and optimized way, focused on increasing GPU utilization.
 
-Currently, the available features are:
+Currently, the platform consists of three componentes:
 
-* [Dynamic GPU partitioning](dynamic-gpu-partitioning/overview.md): allow to schedule Pods requesting fractions of GPU. GPU partitioning is performed automatically in real-time based on the Pods pending and running in the cluster, so that Pods can request only the resources that are strictly necessary and GPUs are always fully utilized.
+* [nos](nos/overview.md): a set of services deployed in your cluster that handle dynamic GPU partitioning and send GPU and workload telemetry back to the `walk:ai` application.
 
-* [Elastic Resource Quota management](elastic-resource-quota/overview.md): increase the number of Pods running on the cluster by allowing namespaces to borrow quotas of reserved resources from other namespaces as long as they are not using them.
+* [Application](app/overview.md): a single control plane to submit jobs, inspect runs, manage volumes and secrets, and observe cluster GPU usage through a browser-based UI.
+
+* [Command-line tool](cli/overview.md): a developer-friendly CLI that turns Python projects into container images without writing Dockerfiles or Kubernetes manifests. Also lets you interface with the `walk:ai` platform just like in the browser, but without leaving your terminal.
+
 
 ![](img/gpu-utilization.png)

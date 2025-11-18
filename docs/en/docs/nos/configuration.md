@@ -1,6 +1,6 @@
 # Configuration
 
-You can customize the GPU Partitioner settings by editing the values file of the [nos](../helm-charts/nos/README.md) Helm chart.
+You can customize the GPU Partitioner settings by editing the values file of the [nos](helm-charts-README.md) Helm chart.
 In this section we focus on some of the values that you would typically want to customize.
 
 ## Pods batch size
@@ -27,7 +27,7 @@ If you installed `nos` with the `scheduler` flag enabled, the GPU Partitioner wi
 
 The GPU Partitioner determines the most proper partitioning plan to apply by considering the possible MIG geometries allowed each of the GPU models present in the cluster.
 
-You can set the MIG geometries supported by each GPU model by editing the `gpuPartitioner.knownMigGeometries` value of the [installation chart](../helm-charts/nos/README.md).
+You can set the MIG geometries supported by each GPU model by editing the `gpuPartitioner.knownMigGeometries` value of the [installation chart](helm-charts-README.md).
 
 You can edit this file to add new MIG geometries for new GPU models, or to edit the existing ones according to your specific needs. For instance, you can remove some MIG geometries if you don't want to allow them to be used for a certain GPU model.
 
