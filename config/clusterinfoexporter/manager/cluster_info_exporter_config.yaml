@@ -4,6 +4,6 @@ metadata:
   name: cluster-info-exporter-config
   namespace: system
 data:
-  endpoint: https://logical-overly-vulture.ngrok-free.app/cluster/insights
+  endpoint: https://api.walkaiorg.app/cluster/insights
   interval: 10s
   httpTimeout: 10s
