@@ -1,0 +1,8 @@
+clusterInfoExporter:
+    config:
+      endpoint: https://api.example.com/cluster/insights
+      interval: 30s
+      httpTimeout: 15s
+    secret:
+      create: true
+      apiToken: "<your-token>"
