@@ -56,7 +56,6 @@ helm install --wait --generate-name \
      --set mig.strategy=mixed \
      --set toolkit.enabled=true
 ```
-
 ### Install cert-manager
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
@@ -84,7 +83,7 @@ Create secret with the API Token
 ```bash
 kubectl create namespace nos-system
 kubectl create secret generic cluster-info-exporter-secrets -n nos-system --from-literal=apiToken='<token>'
-```
+````
 
 ### API client RBAC and token
 The clusterinfoexporter kustomization now also provisions the `walkai` namespace together with an `api-client` service account, the `discovery-minimal` and `admin` ClusterRoleBindings, and the long-lived `api-client-permanent-token` Secret. After the manifests are applied you can retrieve the token that your API needs with:

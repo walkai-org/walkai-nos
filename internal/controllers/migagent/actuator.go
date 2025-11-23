@@ -102,8 +102,13 @@ func (a *MigActuator) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 		return ctrl.Result{}, err
 	}
 
-	// At the end of reconcile, update last applied status information
-	defer a.updateLastApplied(configPlan, statusAnnotations)
+	// Update last applied status information only on successful apply
+	var applySucceeded bool
+	defer func() {
+		if applySucceeded {
+			a.updateLastApplied(configPlan, statusAnnotations)
+		}
+	}()
 
 	// Check if plan has to be applied
 	if configPlan.IsEmpty() {
@@ -117,7 +122,10 @@ func (a *MigActuator) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Res
 
 	// Apply MIG config plan
 	res, err := a.apply(ctx, configPlan)
-	a.sharedState.OnApplyDone()
+	if err == nil {
+		applySucceeded = true
+		a.sharedState.OnApplyDone()
+	}
 
 	return res, err
 }

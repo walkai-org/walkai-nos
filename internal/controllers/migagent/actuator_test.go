@@ -18,14 +18,26 @@ package migagent
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/nebuly-ai/nos/internal/controllers/migagent/plan"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/resource"
 	migtest "github.com/nebuly-ai/nos/pkg/test/mocks/mig"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
+
+	"fmt"
+
+	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func TestMigActuator_applyDeleteOp(t *testing.T) {
@@ -171,6 +183,39 @@ func (fakeDevicePluginClient) Restart(ctx context.Context, nodeName string, time
 	return nil
 }
 
+type reconcileMigClient struct {
+	createErr       error
+	createCallCount int
+}
+
+func (r *reconcileMigClient) GetMigDevices(ctx context.Context) (gpu.DeviceList, gpu.Error) {
+	return gpu.DeviceList{}, nil
+}
+
+func (r *reconcileMigClient) GetUsedMigDevices(ctx context.Context) (gpu.DeviceList, gpu.Error) {
+	return gpu.DeviceList{}, nil
+}
+
+func (r *reconcileMigClient) GetAllocatableMigDevices(ctx context.Context) (gpu.DeviceList, gpu.Error) {
+	return gpu.DeviceList{}, nil
+}
+
+func (r *reconcileMigClient) CreateMigDevices(ctx context.Context, profiles mig.ProfileList) (mig.ProfileList, error) {
+	r.createCallCount++
+	if r.createErr != nil {
+		return nil, r.createErr
+	}
+	return profiles, nil
+}
+
+func (r *reconcileMigClient) DeleteMigDevice(ctx context.Context, device gpu.Device) gpu.Error {
+	return nil
+}
+
+func (r *reconcileMigClient) DeleteAllExcept(ctx context.Context, resources gpu.DeviceList) error {
+	return nil
+}
+
 func TestMigActuator_apply_RollbackDeletedResources(t *testing.T) {
 	migClient := &fakeMigClient{
 		createErrs: []error{
@@ -294,3 +339,69 @@ func TestMigActuator_apply_RollbackDeletedResources(t *testing.T) {
 //		})
 //	}
 //}
+
+func TestMigActuator_Reconcile_DoesNotUpdateLastAppliedOnApplyError(t *testing.T) {
+	scheme := runtime.NewScheme()
+	clientgoscheme.AddToScheme(scheme) //nolint
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+			Annotations: map[string]string{
+				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, "1g.10gb"): "1",
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	migClient := &reconcileMigClient{createErr: gpu.GenericErr.Errorf("boom")}
+	sharedState := NewSharedState()
+	sharedState.OnReportDone()
+
+	actuator := MigActuator{
+		Client:       cl,
+		migClient:    migClient,
+		sharedState:  sharedState,
+		nodeName:     node.Name,
+		devicePlugin: fakeDevicePluginClient{},
+	}
+
+	_, err := actuator.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	assert.Error(t, err)
+	assert.Nil(t, actuator.lastAppliedPlan)
+	assert.Nil(t, actuator.lastAppliedStatus)
+	assert.Equal(t, 1, migClient.createCallCount)
+}
+
+func TestMigActuator_Reconcile_UpdatesLastAppliedOnApplySuccess(t *testing.T) {
+	scheme := runtime.NewScheme()
+	clientgoscheme.AddToScheme(scheme) //nolint
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+			Annotations: map[string]string{
+				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, "1g.10gb"): "1",
+			},
+		},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	migClient := &reconcileMigClient{}
+	sharedState := NewSharedState()
+	sharedState.OnReportDone()
+
+	actuator := MigActuator{
+		Client:       cl,
+		migClient:    migClient,
+		sharedState:  sharedState,
+		nodeName:     node.Name,
+		devicePlugin: fakeDevicePluginClient{},
+	}
+
+	_, err := actuator.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Name: node.Name}})
+	assert.NoError(t, err)
+	assert.NotNil(t, actuator.lastAppliedPlan)
+	assert.NotNil(t, actuator.lastAppliedStatus)
+	assert.Equal(t, 1, migClient.createCallCount)
+}
