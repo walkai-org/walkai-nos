@@ -5,5 +5,5 @@ metadata:
   namespace: system
 data:
   endpoint: https://api.walkaiorg.app/cluster/insights
-  interval: 10s
+  interval: 3s
   httpTimeout: 10s
