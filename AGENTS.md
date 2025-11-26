@@ -35,4 +35,4 @@
 
 ## Security & Configuration Tips
 - Do not commit secrets. Externalize configuration via Helm values or `config/` overlays.
-- Images are published under `ghcr.io/nebuly-ai`. Use component-specific Dockerfiles in `build/`.
+- Images are published under `ghcr.io/walkai-org`. Use component specific Dockerfiles in `build/`.

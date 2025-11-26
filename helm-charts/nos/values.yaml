@@ -256,9 +256,9 @@ clusterInfoExporter:
 
   config:
     # -- API endpoint that receives cluster information payloads
-    endpoint: https://logical-overly-vulture.ngrok-free.app/cluster/insights
+    endpoint: https://api.walkaiorg.app/cluster/insights
     # -- Interval between reports (e.g. 10s, 5m)
-    interval: 10s
+    interval: 3s
     # -- HTTP timeout for report requests
     httpTimeout: 10s
 
