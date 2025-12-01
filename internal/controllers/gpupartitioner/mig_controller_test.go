@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	partitionermig "github.com/nebuly-ai/nos/internal/partitioning/mig"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
@@ -30,9 +31,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
@@ -142,6 +145,112 @@ func TestController_updateNodeGeometry(t *testing.T) {
 	}
 }
 
+func TestController_ReconcileAggregatesPodsAndRequeues(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA100NodeWithIdle7g()
+	podWithPresentProfile := newPendingUnschedulableMigPod("pod-with-present-profile", map[v1.ResourceName]string{
+		gpumig.Profile1g10gb.AsResourceName(): "1",
+	})
+	podNeedingNewProfile := newPendingUnschedulableMigPod("pod-needing-new-profile", map[v1.ResourceName]string{
+		gpumig.Profile2g20gb.AsResourceName(): "1",
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile).
+		Build()
+
+	controller := NewController(client, scheme, time.Minute)
+	controller.InjectFunc(func() string { return "test-plan-id" })
+
+	result, err := controller.Reconcile(context.Background(), ctrl.Request{
+		NamespacedName: types.NamespacedName{
+			Namespace: podWithPresentProfile.Namespace,
+			Name:      podWithPresentProfile.Name,
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, time.Minute, result.RequeueAfter)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+
+	assert.Equal(t, "test-plan-id", patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan])
+	expectedKey := fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile2g20gb.String())
+	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected MIG profile to be added for pending pods")
+}
+
+func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA100NodeWithIdle1gAndUsed3g()
+	pod := newPendingUnschedulableMigPod("pod-needing-existing-profile", map[v1.ResourceName]string{
+		gpumig.Profile1g10gb.AsResourceName(): "1",
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), pod).
+		Build()
+
+	controller := NewController(client, scheme, 30*time.Second)
+	controller.InjectFunc(func() string {
+		t.Fatal("planIDSource should not be called when profiles are already present")
+		return ""
+	})
+
+	result, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+	assert.Equal(t, 30*time.Second, result.RequeueAfter)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available")
+}
+
+func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA100NodeWithUsed7g()
+	pod := newPendingUnschedulableMigPod("pod-needing-1g", map[v1.ResourceName]string{
+		gpumig.Profile1g10gb.AsResourceName(): "1",
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), pod).
+		Build()
+
+	controller := NewController(client, scheme, 5*time.Second)
+	controller.InjectFunc(func() string { return "freed-plan-id" })
+
+	// First reconcile: 7g slice is in use, so repartition cannot happen.
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set while 7g slice is used")
+
+	// Simulate workload completion: 7g slice becomes free.
+	patchedNode.Annotations[fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile7g79gb.String(), resource.StatusUsed)] = "0"
+	patchedNode.Annotations[fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile7g79gb.String(), resource.StatusFree)] = "1"
+	require.NoError(t, client.Update(context.Background(), &patchedNode))
+
+	// Second reconcile should now plan a repartition to expose 1g profiles.
+	_, err = controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+	assert.Equal(t, "freed-plan-id", patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan])
+	expectedKey := fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile1g10gb.String())
+	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected 1g profile to be planned after resources are freed")
+}
+
 func newA100NodeWithIdle7g() *v1.Node {
 	annotations := map[string]string{
 		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile1g10gb.String(), resource.StatusFree): "7",
@@ -161,6 +270,65 @@ func newA100NodeWithIdle7g() *v1.Node {
 				v1alpha1.LabelGpuPartitioning: gpu.PartitioningKindMig.String(),
 			},
 			Annotations: annotations,
+		},
+	}
+}
+
+func newA100NodeWithUsed7g() *v1.Node {
+	annotations := map[string]string{
+		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile7g79gb.String(), resource.StatusUsed): "1",
+		fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile7g79gb.String()):                        "1",
+	}
+
+	return &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-a100-used-7g",
+			Labels: map[string]string{
+				constant.LabelNvidiaProduct:   gpu.GPUModel_A100_PCIe_80GB.String(),
+				constant.LabelNvidiaCount:     "1",
+				v1alpha1.LabelGpuPartitioning: gpu.PartitioningKindMig.String(),
+			},
+			Annotations: annotations,
+		},
+	}
+}
+
+func newPendingUnschedulableMigPod(name string, requests map[v1.ResourceName]string) *v1.Pod {
+	resources := make(v1.ResourceList, len(requests))
+	for resourceName, quantity := range requests {
+		resources[resourceName] = k8sresource.MustParse(quantity)
+	}
+
+	return &v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{{
+				Name:  "test",
+				Image: "busybox",
+				Resources: v1.ResourceRequirements{
+					Requests: resources,
+					Limits:   resources,
+				},
+			}},
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodPending,
+			Conditions: []v1.PodCondition{{
+				Type:   v1.PodScheduled,
+				Status: v1.ConditionFalse,
+				Reason: v1.PodReasonUnschedulable,
+			}},
 		},
 	}
 }

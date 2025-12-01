@@ -18,8 +18,7 @@ data:
       resourceName: gpu-partitioner.nebuly.com
       leaderElectionReleaseOnCancel: true
 
-    batchWindowTimeoutSeconds: {{ .Values.gpuPartitioner.batchWindowTimeoutSeconds }}
-    batchWindowIdleSeconds: {{ .Values.gpuPartitioner.batchWindowIdleSeconds }}
+    requeueIntervalSeconds: {{ .Values.gpuPartitioner.requeueIntervalSeconds }}
     knownMigGeometriesFile:  {{ include "gpuPartitioner.knownMigGeometriesFileName" . }}
     devicePluginConfigMap:
      name: {{ .Values.gpuPartitioner.devicePlugin.config.name }}

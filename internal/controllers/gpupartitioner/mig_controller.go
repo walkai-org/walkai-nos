@@ -30,71 +30,73 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"time"
 )
 
 // Controller reacts to pending Pods that request MIG resources and, when none of the MIG-enabled nodes currently
 // expose the requested MIG profile, it updates the node partitioning so that the profile becomes available.
 type Controller struct {
 	client.Client
-	Scheme       *runtime.Scheme
-	partitioner  *partitionermig.Partitioner
-	planIDSource func() string
+	Scheme          *runtime.Scheme
+	partitioner     *partitionermig.Partitioner
+	planIDSource    func() string
+	requeueInterval time.Duration
 }
 
-func NewController(client client.Client, scheme *runtime.Scheme) *Controller {
+func NewController(client client.Client, scheme *runtime.Scheme, requeueInterval time.Duration) *Controller {
 	return &Controller{
-		Client:       client,
-		Scheme:       scheme,
-		partitioner:  partitionermig.NewPartitioner(client),
-		planIDSource: partitionermig.NewPartitioningPlanID,
+		Client:          client,
+		Scheme:          scheme,
+		partitioner:     partitionermig.NewPartitioner(client),
+		planIDSource:    partitionermig.NewPartitioningPlanID,
+		requeueInterval: requeueInterval,
 	}
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;patch
 
-func (c *Controller) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
 
-	var pod v1.Pod
-	if err := c.Get(ctx, client.ObjectKey{Name: req.Name, Namespace: req.Namespace}, &pod); err != nil {
-		return ctrl.Result{}, client.IgnoreNotFound(err)
-	}
-
-	if !c.shouldConsiderPod(pod) {
-		return ctrl.Result{}, nil
-	}
-
-	requestedProfiles := gpumig.GetRequestedProfiles(pod)
-	if len(requestedProfiles) == 0 {
-		return ctrl.Result{}, nil
-	}
-
+	result := ctrl.Result{RequeueAfter: c.requeueInterval}
 	nodes, err := c.listMigPartitionedNodes(ctx)
 	if err != nil {
 		logger.Error(err, "unable to list MIG partitioned nodes")
-		return ctrl.Result{}, err
+		return result, err
 	}
 	if len(nodes) == 0 {
 		logger.V(1).Info("no MIG partitioned nodes found, nothing to do")
-		return ctrl.Result{}, nil
+		return result, nil
+	}
+
+	pendingPods, err := c.listPendingMigPods(ctx)
+	if err != nil {
+		logger.Error(err, "unable to list pending MIG pods")
+		return result, err
+	}
+
+	requestedProfiles := aggregateRequestedProfiles(pendingPods)
+	if len(requestedProfiles) == 0 {
+		logger.V(1).Info("no pending unschedulable MIG pods found, skipping")
+		return result, nil
 	}
 
 	if c.profileAlreadyPresent(nodes, requestedProfiles) {
 		logger.V(1).Info("requested MIG profiles already present in the cluster, skipping", "profiles", requestedProfiles)
-		return ctrl.Result{}, nil
+		return result, nil
 	}
 
 	updated, err := c.tryRepartition(ctx, nodes, requestedProfiles)
 	if err != nil {
 		logger.Error(err, "failed to update MIG partitioning")
-		return ctrl.Result{}, err
+		return result, err
 	}
 	if !updated {
 		logger.Info("unable to find a node that can provide requested MIG profiles", "profiles", requestedProfiles)
 	}
 
-	return ctrl.Result{}, nil
+	return result, nil
 }
 
 func (c *Controller) shouldConsiderPod(pod v1.Pod) bool {
@@ -116,6 +118,26 @@ func (c *Controller) listMigPartitionedNodes(ctx context.Context) ([]v1.Node, er
 		return nil, err
 	}
 	return nodeList.Items, nil
+}
+
+func (c *Controller) listPendingMigPods(ctx context.Context) ([]v1.Pod, error) {
+	var podList v1.PodList
+	if err := c.List(ctx, &podList); err != nil {
+		return nil, err
+	}
+
+	pending := make([]v1.Pod, 0, len(podList.Items))
+	for _, pod := range podList.Items {
+		if !c.shouldConsiderPod(pod) {
+			continue
+		}
+		if len(gpumig.GetRequestedProfiles(pod)) == 0 {
+			continue
+		}
+		pending = append(pending, pod)
+	}
+
+	return pending, nil
 }
 
 func (c *Controller) profileAlreadyPresent(nodes []v1.Node, requested map[gpumig.ProfileName]int) bool {
@@ -210,4 +232,14 @@ func (c *Controller) InjectFunc(f func() string) {
 	if f != nil {
 		c.planIDSource = f
 	}
+}
+
+func aggregateRequestedProfiles(pods []v1.Pod) map[gpumig.ProfileName]int {
+	requested := make(map[gpumig.ProfileName]int)
+	for _, pod := range pods {
+		for profile, quantity := range gpumig.GetRequestedProfiles(pod) {
+			requested[profile] += quantity
+		}
+	}
+	return requested
 }

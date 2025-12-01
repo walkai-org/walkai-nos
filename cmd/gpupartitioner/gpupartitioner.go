@@ -19,6 +19,7 @@ package main
 import (
 	"flag"
 	"os"
+	"time"
 
 	"github.com/nebuly-ai/nos/internal/controllers/gpupartitioner"
 	partitionermig "github.com/nebuly-ai/nos/internal/partitioning/mig"
@@ -40,6 +41,8 @@ var (
 	setupLog = ctrl.Log.WithName("setup")
 )
 
+const defaultRequeueIntervalSeconds = 10
+
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(v1alpha1.AddToScheme(scheme))
@@ -58,7 +61,9 @@ func main() {
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	options := ctrl.Options{Scheme: scheme}
-	config := configv1alpha1.GpuPartitionerConfig{}
+	config := configv1alpha1.GpuPartitionerConfig{
+		RequeueIntervalSeconds: defaultRequeueIntervalSeconds,
+	}
 	if configFile != "" {
 		var err error
 		options, err = options.AndFrom(ctrl.ConfigFile().AtPath(configFile).OfKind(&config))
@@ -67,6 +72,12 @@ func main() {
 			os.Exit(1)
 		}
 	}
+
+	if config.RequeueIntervalSeconds == 0 {
+		config.RequeueIntervalSeconds = defaultRequeueIntervalSeconds
+	}
+
+	requeueInterval := config.RequeueIntervalSeconds * time.Second
 
 	if config.KnownMigGeometriesFile != "" {
 		knownGeometries, err := loadKnownMigGeometriesFromFile(config.KnownMigGeometriesFile)
@@ -97,7 +108,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	migController := gpupartitioner.NewController(mgr.GetClient(), mgr.GetScheme())
+	migController := gpupartitioner.NewController(mgr.GetClient(), mgr.GetScheme(), requeueInterval)
 	if err = migController.SetupWithManager(mgr, constant.MigPartitionerControllerName); err != nil {
 		setupLog.Error(err, "unable to create MIG controller")
 		os.Exit(1)
