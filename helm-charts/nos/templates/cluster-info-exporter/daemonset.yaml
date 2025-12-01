@@ -1,4 +1,5 @@
-{{- if .Values.clusterInfoExporter.enabled }}
+{{- $clusterInfoExporterEnabled := eq (include "clusterInfoExporter.isEnabled" . | trim) "true" }}
+{{- if $clusterInfoExporterEnabled }}
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

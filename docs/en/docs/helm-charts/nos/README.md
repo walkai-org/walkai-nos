@@ -31,10 +31,10 @@ The open-source platform for running AI workloads on k8s in an optimized way, bo
 | clusterInfoExporter.apiClient.namespace | string | `"walkai"` | Namespace where the API client ServiceAccount and token Secret live. |
 | clusterInfoExporter.apiClient.serviceAccountName | string | `"api-client"` | Name of the API client ServiceAccount. |
 | clusterInfoExporter.apiClient.tokenSecretName | string | `"api-client-permanent-token"` | Name of the long-lived ServiceAccount token Secret for the API client. |
-| clusterInfoExporter.config.endpoint | string | `"https://example.com/cluster/insights"` | API endpoint that receives cluster information payloads. |
+| clusterInfoExporter.config.endpoint | string | `""` | API endpoint that receives cluster information payloads (exporter deploys only when set). |
 | clusterInfoExporter.config.httpTimeout | string | `"10s"` | HTTP timeout for report requests. |
 | clusterInfoExporter.config.interval | string | `"10s"` | Interval between reports (e.g. 10s, 5m). |
-| clusterInfoExporter.enabled | bool | `true` | Enable or disable the Cluster Info Exporter DaemonSet. |
+| clusterInfoExporter.enabled | bool | `false` | Enable or disable the Cluster Info Exporter DaemonSet (requires `clusterInfoExporter.config.endpoint`). |
 | clusterInfoExporter.fullnameOverride | string | `""` | Overrides the fully qualified name of the Cluster Info Exporter resources. |
 | clusterInfoExporter.image.pullPolicy | string | `"IfNotPresent"` | Image pull policy of the Cluster Info Exporter container. |
 | clusterInfoExporter.image.repository | string | `"ghcr.io/walkai-org/nos-cluster-info-exporter"` | Repository of the Cluster Info Exporter image. |

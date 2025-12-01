@@ -1,4 +1,5 @@
 clusterInfoExporter:
+    enabled: true
     config:
       endpoint: https://api.example.com/cluster/insights
       interval: 30s

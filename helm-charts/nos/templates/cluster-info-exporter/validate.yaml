@@ -1,0 +1,3 @@
+{{- if and .Values.clusterInfoExporter.enabled (eq (trim (default "" .Values.clusterInfoExporter.config.endpoint)) "") }}
+{{- fail "clusterInfoExporter.config.endpoint must be set when clusterInfoExporter.enabled=true" -}}
+{{- end }}
