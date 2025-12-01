@@ -61,43 +61,31 @@ helm install --wait --generate-name \
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
 ```
-
-```bash
-git clone https://github.com/walkai-org/walkai-nos.git
+### Create a values.yml to override cluster_info_exporter values
+```yml
+clusterInfoExporter:
+    config:
+      endpoint: https://api.example.com/cluster/insights
+      interval: 30s
+      httpTimeout: 15s
+    secret:
+      create: true
+      apiToken: "<your-token>"
 ```
-```bash
-cd walkai-nos
-```
+
+### Install walkai-nos
 
 ```bash
-kubectl label node walkai-dev nos.nebuly.com/gpu-partitioning=mig --overwrite
-```
-
-Edit the API endpoint at cluster_info_exporter_config.yaml. If you are running a local cluster you can use:
-```bash
-minikube -p <node name> ssh -- "ip route | awk '/default/ {print \$3; exit}'"
-```
-To get the IP of the gateway. Or you can use ngrok for a public ip to your api
-
-Create secret with the API Token
-
-```bash
-kubectl create namespace nos-system
-kubectl create secret generic cluster-info-exporter-secrets -n nos-system --from-literal=apiToken='<token>'
+helm install oci://ghcr.io/walkai-org/helm-charts/nos \
+  --version 0.0.3 \
+  --namespace nos-system \
+  --generate-name \
+  --create-namespace \
+  -f values.yml
 ```
 
 ### API client RBAC and token
 The clusterinfoexporter kustomization now also provisions the `walkai` namespace together with an `api-client` service account, the `discovery-minimal` and `admin` ClusterRoleBindings, and the long-lived `api-client-permanent-token` Secret. After the manifests are applied you can retrieve the token that your API needs with:
 ```bash
 kubectl get secret api-client-permanent-token -n walkai   -o jsonpath='{.data.token}' | base64 -d; echo
-```
-
-```bash
-kubectl apply -k config/migagent/default
-kubectl apply -k config/gpupartitioner/default
-kubectl apply -k config/clusterinfoexporter/default
-```
-
-```bash
-kubectl get pods -n nos-system -w
 ```
