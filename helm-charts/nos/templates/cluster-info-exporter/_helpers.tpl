@@ -4,6 +4,10 @@
 *********************************************************************
 */}}
 
+{{- define "clusterInfoExporter.isEnabled" -}}
+{{- and .Values.clusterInfoExporter.enabled (ne (trim (default "" .Values.clusterInfoExporter.config.endpoint)) "") -}}
+{{- end -}}
+
 {{- define "clusterInfoExporter.name" -}}
 {{- default (printf "%s-%s" .Chart.Name "cluster-info-exporter") .Values.clusterInfoExporter.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}

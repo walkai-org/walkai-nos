@@ -1,4 +1,5 @@
-{{- if and .Values.clusterInfoExporter.enabled .Values.clusterInfoExporter.apiClient.enabled .Values.clusterInfoExporter.apiClient.createNamespace }}
+{{- $clusterInfoExporterEnabled := include "clusterInfoExporter.isEnabled" . | fromYaml }}
+{{- if and $clusterInfoExporterEnabled .Values.clusterInfoExporter.apiClient.enabled .Values.clusterInfoExporter.apiClient.createNamespace }}
 apiVersion: v1
 kind: Namespace
 metadata:

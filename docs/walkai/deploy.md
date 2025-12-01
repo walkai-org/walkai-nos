@@ -64,6 +64,7 @@ kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/
 ### Create a values.yml to override cluster_info_exporter values
 ```yml
 clusterInfoExporter:
+    enabled: true
     config:
       endpoint: https://api.example.com/cluster/insights
       interval: 30s

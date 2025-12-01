@@ -229,7 +229,7 @@ gpuPartitioner:
 
 clusterInfoExporter:
   # -- Enable or disable the Cluster Info Exporter DaemonSet
-  enabled: true
+  enabled: false
 
   # -- Overrides the name of the Cluster Info Exporter resources.
   nameOverride: ""
@@ -245,8 +245,8 @@ clusterInfoExporter:
     tag: ""
 
   config:
-    # -- API endpoint that receives cluster information payloads
-    endpoint: https://api.walkaiorg.app/cluster/insights
+    # -- API endpoint that receives cluster information payloads (required when enabling the exporter)
+    endpoint: ""
     # -- Interval between reports (e.g. 10s, 5m)
     interval: 3s
     # -- HTTP timeout for report requests

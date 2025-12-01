@@ -1,6 +1,7 @@
 {{/*Note: we need to keep both the CMs in the same file in order to avoid re-generating the UUID4 */}}
 
 {{- $uuid := uuidv4 -}}
+{{- $clusterInfoExporterEnabled := include "clusterInfoExporter.isEnabled" . | fromYaml -}}
 {{- $config_lookup := (lookup "v1" "ConfigMap" .Release.Namespace (include "nos.installationInfoConfigMap.name" .) ) -}}
 {{- if $config_lookup -}}
 {{- $uuid = $config_lookup.data.uuid -}}
@@ -59,7 +60,7 @@ data:
     chartValues:
       {{- .Values | toYaml | nindent 6 }}
     components:
-      nosClusterInfoExporter: {{ index $.Values "clusterInfoExporter" "enabled" }}
+      nosClusterInfoExporter: {{ $clusterInfoExporterEnabled }}
       nosGpuPartitioner: {{ index $.Values "gpuPartitioner" "enabled" }}
       nosMigAgent: {{ index $.Values "gpuPartitioner" "enabled" }}
       nosGpuAgent: {{ index $.Values "gpuPartitioner" "enabled" }}
