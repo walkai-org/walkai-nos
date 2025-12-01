@@ -61,7 +61,28 @@ helm install --wait --generate-name \
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
 ```
+### Create a values.yml to override cluster_info_exporter values
+```yml
+clusterInfoExporter:
+    config:
+      endpoint: https://api.example.com/cluster/insights
+      interval: 30s
+      httpTimeout: 15s
+    secret:
+      create: true
+      apiToken: "<your-token>"
+```
 
+### Install walkai-nos
+
+```bash
+helm install oci://ghcr.io/walkai-org/helm-charts/nos \
+  --version 0.0.3 \
+  --namespace nos-system \
+  --generate-name \
+  --create-namespace \
+  -f values.yml
+```
 ```bash
 git clone https://github.com/walkai-org/walkai-nos.git
 ```
