@@ -30,18 +30,14 @@ type GpuPartitionerConfig struct {
 	cfg.ControllerManagerConfigurationSpec `json:",inline"`
 	SchedulerConfigFile                    string           `json:"schedulerConfigFile,omitempty"`
 	KnownMigGeometriesFile                 string           `json:"knownMigGeometriesFile,omitempty"`
-	BatchWindowTimeoutSeconds              time.Duration    `json:"batchWindowTimeoutSeconds"`
-	BatchWindowIdleSeconds                 time.Duration    `json:"batchWindowIdleSeconds"`
+	RequeueIntervalSeconds                 time.Duration    `json:"requeueIntervalSeconds"`
 	DevicePluginConfigMap                  NamespacedObject `json:"devicePluginConfigMap,omitempty"`
 	DevicePluginDelaySeconds               time.Duration    `json:"devicePluginDelaySeconds"`
 }
 
 func (c *GpuPartitionerConfig) Validate() error {
-	if c.BatchWindowTimeoutSeconds.Seconds() <= 0 {
-		return errors.New("batchWindowTimeoutSeconds must be greater than 0")
-	}
-	if c.BatchWindowIdleSeconds.Seconds() <= 0 {
-		return errors.New("batchWindowIdleSeconds must be greater than 0")
+	if c.RequeueIntervalSeconds.Seconds() <= 0 {
+		return errors.New("requeueIntervalSeconds must be greater than 0")
 	}
 	if c.DevicePluginDelaySeconds.Seconds() <= 0 {
 		return errors.New("devicePluginDelaySeconds must be greater than 0")

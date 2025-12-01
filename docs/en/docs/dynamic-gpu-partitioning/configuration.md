@@ -3,16 +3,13 @@
 You can customize the GPU Partitioner settings by editing the values file of the [nos](../helm-charts/nos/README.md) Helm chart.
 In this section we focus on some of the values that you would typically want to customize.
 
-## Pods batch size
+## Reconciliation interval
 
-The GPU partitioner processes pending pods in batches of configurable size. You can set the batch size by editing the following two parameters of the configuration:
+The GPU partitioner periodically scans all pending, unschedulable pods that request MIG resources and evaluates whether a different partitioning would make them schedulable. You can control how often this happens with:
 
-- `batchWindowTimeoutSeconds`: timeout of the time window used for batching pending Pods. The time window starts when the GPU Partitioner starts processing a batch of pending Pods, and ends when the timeout expires or the batch is completed.
-- `batchWindowIdleSeconds`: idle time before a batch of pods is considered completed. Once the time window of a batch starts, if idle time elapses and no new pending pods are detected during this time, the batch is considered completed.
+- `requeueIntervalSeconds`: how often the controller wakes up even if no new Pod events occur.
 
-Increase the value of these two parameters if you want the GPU partitioner to take into account more pending Pods when deciding the GPU partitioning plan, thus making potentially it more effective.
-
-Set lower values if you want the partitioning to be performed more frequently (e.g. if you want to react faster to changes in the cluster), and you don't mind if the partitioning is less effective (e.g. the resources requested by some pending pods might not be created).
+Shorter intervals react faster to changes (for example when the scheduler no longer emits events) at the cost of more frequent reconciliation cycles. Longer intervals reduce churn but defer partitioning updates.
 
 ## Scheduler configuration
 
