@@ -1,5 +1,5 @@
 # nos version. Used by release workflow, do not move this line.
-NOS_VERSION ?= 0.0.2
+NOS_VERSION ?= 0.0.3
 
 DOCKER_REGISTRY ?= ghcr.io/walkai-org
 
