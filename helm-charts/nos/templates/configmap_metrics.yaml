@@ -63,5 +63,4 @@ data:
       nosClusterInfoExporter: {{ $clusterInfoExporterEnabled }}
       nosGpuPartitioner: {{ index $.Values "gpuPartitioner" "enabled" }}
       nosMigAgent: {{ index $.Values "gpuPartitioner" "enabled" }}
-      nosGpuAgent: {{ index $.Values "gpuPartitioner" "enabled" }}
 {{- end -}}
