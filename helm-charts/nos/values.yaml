@@ -82,36 +82,6 @@ gpuPartitioner:
         value: "spot"
         effect: "NoSchedule"
 
-  # -- Configuration of the GPU Agent component of the GPU Partitioner.
-  # @default -- -
-  gpuAgent:
-    # -- Interval at which the mig-agent will report to k8s status of the GPUs of the Node
-    reportConfigIntervalSeconds: 10
-    # -- The level of log of the GPU Agent.
-    # Zero corresponds to `info`, while values greater or equal than 1 corresponds to higher debug levels.
-    # **Must be >= 0**.
-    logLevel: 0
-    # -- The container runtime class name to use for the GPU Agent container.
-    runtimeClassName:
-    image:
-      # -- Sets the GPU Agent Docker image.
-      repository: ghcr.io/walkai-org/nos-gpu-agent
-      # -- Sets the GPU Agent Docker image pull policy.
-      pullPolicy: IfNotPresent
-      # -- Overrides the GPU Agent image tag whose default is the chart appVersion.
-      tag: ""
-    # -- Sets the resource requests and limits of the GPU Agent container.
-    resources:
-      limits:
-        cpu: 100m
-        memory: 128Mi
-    # -- Sets the tolerations of the GPU Agent Pod.
-    tolerations:
-      - key: "kubernetes.azure.com/scalesetpriority"
-        operator: "Equal"
-        value: "spot"
-        effect: "NoSchedule"
-
   # -- Configuration of the [Kube RBAC Proxy](https://github.com/brancz/kube-rbac-proxy), which runs as sidecar of
   # all the GPU Partitioner components Pods.
   # @default -- -
