@@ -84,6 +84,9 @@ const (
 	// setting.
 	DefaultNvidiaGPUResourceMemory = 16
 
+	// DefaultPriorityClassValue is the default priority value used when a Pod does not specify any PriorityClass.
+	DefaultPriorityClassValue int32 = 1000
+
 	// DefaultPodResourcesTimeout is the default timeout used for the Pod resource lister
 	DefaultPodResourcesTimeout = 10 * time.Second
 	// DefaultPodResourcesMaxMsgSize is the default max message size used for the Pod resource lister
