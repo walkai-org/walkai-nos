@@ -11,6 +11,40 @@ allowDefaultNamespace: false
 
 # -- If true, shares with Nebuly telemetry data collected only during the Chart installation
 shareTelemetry: true
+
+priorityClasses:
+  # -- Enable or disable provisioning of nos PriorityClass resources.
+  enabled: true
+  low:
+    # -- Name of the low priority class.
+    name: nos-priority-low
+    # -- Priority value used for low-priority workloads.
+    value: 0
+    # -- Description shown on the PriorityClass object.
+    description: "Low priority for GPU workloads managed by nos."
+  medium:
+    # -- Name of the medium priority class.
+    name: nos-priority-medium
+    # -- Priority value used for medium-priority workloads (global default).
+    value: 1000
+    # -- Sets the PriorityClass as cluster-wide default when no priority is specified.
+    globalDefault: true
+    # -- Description shown on the PriorityClass object.
+    description: "Default priority for GPU workloads managed by nos."
+  high:
+    # -- Name of the high priority class.
+    name: nos-priority-high
+    # -- Priority value used for high-priority workloads.
+    value: 2000
+    # -- Description shown on the PriorityClass object.
+    description: "High priority for GPU workloads managed by nos."
+  extraHigh:
+    # -- Name of the extra high priority class.
+    name: nos-priority-extra-high
+    # -- Priority value used for extra-high-priority workloads.
+    value: 3000
+    # -- Description shown on the PriorityClass object.
+    description: "Extra high priority for GPU workloads managed by nos."
 gpuPartitioner:
   # -- Enable or disable the `nos gpu partitioner`
   enabled: true

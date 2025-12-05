@@ -1,0 +1,44 @@
+{{- if .Values.priorityClasses.enabled }}
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClasses.low.name }}
+  labels:
+    {{- include "nos.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.low.value }}
+description: {{ .Values.priorityClasses.low.description | quote }}
+preemptionPolicy: Never
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClasses.medium.name }}
+  labels:
+    {{- include "nos.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.medium.value }}
+{{- if .Values.priorityClasses.medium.globalDefault }}
+globalDefault: true
+{{- end }}
+description: {{ .Values.priorityClasses.medium.description | quote }}
+preemptionPolicy: Never
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClasses.high.name }}
+  labels:
+    {{- include "nos.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.high.value }}
+description: {{ .Values.priorityClasses.high.description | quote }}
+preemptionPolicy: Never
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: {{ .Values.priorityClasses.extraHigh.name }}
+  labels:
+    {{- include "nos.labels" . | nindent 4 }}
+value: {{ .Values.priorityClasses.extraHigh.value }}
+description: {{ .Values.priorityClasses.extraHigh.description | quote }}
+preemptionPolicy: Never
+{{- end }}

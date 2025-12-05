@@ -20,6 +20,7 @@ import (
 	"context"
 	partitionermig "github.com/nebuly-ai/nos/internal/partitioning/mig"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
+	"github.com/nebuly-ai/nos/pkg/constant"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	gpumig "github.com/nebuly-ai/nos/pkg/gpu/mig"
 	podutil "github.com/nebuly-ai/nos/pkg/util/pod"
@@ -30,6 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"sort"
 	"time"
 )
 
@@ -76,24 +78,25 @@ func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 		return result, err
 	}
 
-	requestedProfiles := aggregateRequestedProfiles(pendingPods)
-	if len(requestedProfiles) == 0 {
+	sortedPending := sortPodsByPriorityAndAge(pendingPods)
+	requestedForPlan := c.buildRequestedProfilesPlan(nodes, sortedPending)
+	if len(requestedForPlan) == 0 {
 		logger.V(1).Info("no pending unschedulable MIG pods found, skipping")
 		return result, nil
 	}
 
-	if c.profileAlreadyPresent(nodes, requestedProfiles) {
-		logger.V(1).Info("requested MIG profiles already present in the cluster, skipping", "profiles", requestedProfiles)
+	if c.profileAlreadyPresent(nodes, requestedForPlan) {
+		logger.V(1).Info("requested MIG profiles already present in the cluster, skipping", "profiles", requestedForPlan)
 		return result, nil
 	}
 
-	updated, err := c.tryRepartition(ctx, nodes, requestedProfiles)
+	updated, err := c.tryRepartition(ctx, nodes, requestedForPlan)
 	if err != nil {
 		logger.Error(err, "failed to update MIG partitioning")
 		return result, err
 	}
 	if !updated {
-		logger.Info("unable to find a node that can provide requested MIG profiles", "profiles", requestedProfiles)
+		logger.Info("unable to find a node that can provide requested MIG profiles", "profiles", requestedForPlan)
 	}
 
 	return result, nil
@@ -140,17 +143,40 @@ func (c *Controller) listPendingMigPods(ctx context.Context) ([]v1.Pod, error) {
 	return pending, nil
 }
 
-func (c *Controller) profileAlreadyPresent(nodes []v1.Node, requested map[gpumig.ProfileName]int) bool {
-	for profile := range requested {
-		if c.profilePresentOnAnyNode(nodes, profile) {
+func (c *Controller) buildRequestedProfilesPlan(
+	nodes []v1.Node,
+	pendingPods []v1.Pod,
+) map[gpumig.ProfileName]int {
+	requested := make(map[gpumig.ProfileName]int)
+	lastFeasible := make(map[gpumig.ProfileName]int)
+
+	for _, pod := range pendingPods {
+		addPodRequestedProfiles(requested, pod)
+
+		// If current set is already available, keep going to next pod.
+		if c.profileAlreadyPresent(nodes, requested) {
+			lastFeasible = copyRequestedProfiles(requested)
 			continue
 		}
-		return false
+
+		// If we can repartition for this prefix, keep track and continue to see if we can include more pods.
+		if c.canRepartition(nodes, requested) {
+			lastFeasible = copyRequestedProfiles(requested)
+			continue
+		}
+
+		// Cannot satisfy this (higher-priority) pod; stop extending the plan.
+		break
 	}
-	return true
+
+	return lastFeasible
 }
 
-func (c *Controller) profilePresentOnAnyNode(nodes []v1.Node, profile gpumig.ProfileName) bool {
+func (c *Controller) canRepartition(nodes []v1.Node, requested map[gpumig.ProfileName]int) bool {
+	if len(requested) == 0 {
+		return false
+	}
+
 	for _, node := range nodes {
 		nodeInfo := framework.NewNodeInfo()
 		nodeInfo.SetNode(node.DeepCopy())
@@ -158,7 +184,48 @@ func (c *Controller) profilePresentOnAnyNode(nodes []v1.Node, profile gpumig.Pro
 		if err != nil {
 			continue
 		}
-		if migNode.Geometry()[profile] > 0 {
+
+		requiredSlices := make(map[gpu.Slice]int, len(requested))
+		for profile, quantity := range requested {
+			requiredSlices[profile] = quantity
+		}
+
+		clonedNode, ok := migNode.Clone().(*gpumig.Node)
+		if !ok {
+			continue
+		}
+
+		updated, err := clonedNode.UpdateGeometryFor(requiredSlices)
+		if err != nil {
+			continue
+		}
+		if updated && providesRequestedProfiles(*clonedNode, requested) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (c *Controller) profileAlreadyPresent(nodes []v1.Node, requested map[gpumig.ProfileName]int) bool {
+	for profile, quantity := range requested {
+		if c.profilePresentOnAnyNode(nodes, profile, quantity) {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func (c *Controller) profilePresentOnAnyNode(nodes []v1.Node, profile gpumig.ProfileName, quantity int) bool {
+	for _, node := range nodes {
+		nodeInfo := framework.NewNodeInfo()
+		nodeInfo.SetNode(node.DeepCopy())
+		migNode, err := gpumig.NewNode(*nodeInfo)
+		if err != nil {
+			continue
+		}
+		if migNode.Geometry()[profile] >= quantity {
 			return true
 		}
 	}
@@ -208,6 +275,9 @@ func (c *Controller) updateNodeGeometry(
 	if err != nil || !anyUpdated {
 		return false, err
 	}
+	if !providesRequestedProfiles(migNode, requested) {
+		return false, nil
+	}
 
 	partitioning := partitionermig.BuildNodePartitioning(migNode)
 	planID := c.planIDSource()
@@ -234,12 +304,53 @@ func (c *Controller) InjectFunc(f func() string) {
 	}
 }
 
-func aggregateRequestedProfiles(pods []v1.Pod) map[gpumig.ProfileName]int {
-	requested := make(map[gpumig.ProfileName]int)
-	for _, pod := range pods {
-		for profile, quantity := range gpumig.GetRequestedProfiles(pod) {
-			requested[profile] += quantity
+func addPodRequestedProfiles(target map[gpumig.ProfileName]int, pod v1.Pod) {
+	for profile, quantity := range gpumig.GetRequestedProfiles(pod) {
+		target[profile] += quantity
+	}
+}
+
+func copyRequestedProfiles(source map[gpumig.ProfileName]int) map[gpumig.ProfileName]int {
+	result := make(map[gpumig.ProfileName]int, len(source))
+	for profile, quantity := range source {
+		result[profile] = quantity
+	}
+	return result
+}
+
+func providesRequestedProfiles(node gpumig.Node, requested map[gpumig.ProfileName]int) bool {
+	geometry := node.Geometry()
+	for profile, quantity := range requested {
+		if geometry[profile] < quantity {
+			return false
 		}
 	}
-	return requested
+	return true
+}
+
+func sortPodsByPriorityAndAge(pods []v1.Pod) []v1.Pod {
+	sorted := append([]v1.Pod(nil), pods...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		p1 := podPriorityOrDefault(sorted[i])
+		p2 := podPriorityOrDefault(sorted[j])
+		if p1 != p2 {
+			return p1 > p2
+		}
+
+		t1 := sorted[i].CreationTimestamp.Time
+		t2 := sorted[j].CreationTimestamp.Time
+		if !t1.Equal(t2) {
+			return t1.Before(t2)
+		}
+
+		return sorted[i].Name < sorted[j].Name
+	})
+	return sorted
+}
+
+func podPriorityOrDefault(pod v1.Pod) int32 {
+	if pod.Spec.Priority != nil {
+		return *pod.Spec.Priority
+	}
+	return constant.DefaultPriorityClassValue
 }

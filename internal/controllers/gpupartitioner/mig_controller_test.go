@@ -72,16 +72,16 @@ func TestController_updateNodeGeometry(t *testing.T) {
 			name:        "creates plan for multiple pending requests",
 			nodeFactory: newA100NodeWithIdle7g,
 			requested: map[gpumig.ProfileName]int{
+				gpumig.Profile4g40gb: 1,
 				gpumig.Profile2g20gb: 1,
-				gpumig.Profile3g40gb: 1,
-				gpumig.Profile7g79gb: 1,
+				gpumig.Profile1g10gb: 1,
 			},
 			planID:        "test-plan-id",
 			expectUpdated: true,
 			expectedSpecAnnotations: map[string]string{
 				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile1g10gb.String()): "1",
 				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile2g20gb.String()): "1",
-				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile3g40gb.String()): "1",
+				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile4g40gb.String()): "1",
 			},
 			expectedPlanAnnotation: "test-plan-id",
 		},
@@ -251,6 +251,79 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected 1g profile to be planned after resources are freed")
 }
 
+func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA30NodeWithoutMigDevices()
+	extraHigh := int32(3000)
+	medium := int32(1000)
+
+	highPriorityPod := newPendingUnschedulableMigPod("high-priority-unsupported", map[v1.ResourceName]string{
+		gpumig.Profile7g79gb.AsResourceName(): "1",
+	})
+	highPriorityPod.Spec.Priority = &extraHigh
+	highPriorityPod.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Minute))
+
+	lowPriorityPod := newPendingUnschedulableMigPod("low-priority-supported", map[v1.ResourceName]string{
+		gpumig.Profile1g6gb.AsResourceName(): "1",
+	})
+	lowPriorityPod.Spec.Priority = &medium
+	lowPriorityPod.CreationTimestamp = metav1.NewTime(time.Now())
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), highPriorityPod, lowPriorityPod).
+		Build()
+
+	controller := NewController(client, scheme, time.Minute)
+	controller.InjectFunc(func() string { return "plan-id-should-not-be-set" })
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be created when higher priority pod cannot be satisfied")
+}
+
+func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA30NodeWithoutMigDevices()
+	medium := int32(1000)
+
+	olderPod := newPendingUnschedulableMigPod("older-pod", map[v1.ResourceName]string{
+		gpumig.Profile4g24gb.AsResourceName(): "1",
+	})
+	olderPod.Spec.Priority = &medium
+	olderPod.CreationTimestamp = metav1.NewTime(time.Now().Add(-2 * time.Minute))
+
+	youngerPod := newPendingUnschedulableMigPod("younger-pod", map[v1.ResourceName]string{
+		gpumig.Profile7g79gb.AsResourceName(): "1",
+	})
+	youngerPod.Spec.Priority = &medium
+	youngerPod.CreationTimestamp = metav1.NewTime(time.Now())
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), youngerPod, olderPod).
+		Build()
+
+	controller := NewController(client, scheme, time.Minute)
+	controller.InjectFunc(func() string { return "age-ordered-plan" })
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+	assert.Equal(t, "age-ordered-plan", patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan])
+	expectedKey := fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile4g24gb.String())
+	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected plan to prioritize older pod within the same priority class")
+}
+
 func newA100NodeWithIdle7g() *v1.Node {
 	annotations := map[string]string{
 		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile1g10gb.String(), resource.StatusFree): "7",
@@ -354,6 +427,24 @@ func newA100NodeWithIdle1gAndUsed3g() *v1.Node {
 				v1alpha1.LabelGpuPartitioning: gpu.PartitioningKindMig.String(),
 			},
 			Annotations: annotations,
+		},
+	}
+}
+
+func newA30NodeWithoutMigDevices() *v1.Node {
+	return &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-a30",
+			Labels: map[string]string{
+				constant.LabelNvidiaProduct:   gpu.GPUModel_A30.String(),
+				constant.LabelNvidiaCount:     "1",
+				v1alpha1.LabelGpuPartitioning: gpu.PartitioningKindMig.String(),
+			},
+			Annotations: map[string]string{},
 		},
 	}
 }
