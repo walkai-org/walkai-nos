@@ -11,14 +11,20 @@ The GPU partitioner periodically scans all pending, unschedulable pods that requ
 
 Shorter intervals react faster to changes (for example when the scheduler no longer emits events) at the cost of more frequent reconciliation cycles. Longer intervals reduce churn but defer partitioning updates.
 
+## Priority classes
+
+By default the chart provisions four PriorityClasses for GPU workloads:
+
+- `nos-priority-low` (value 0, preemption disabled)
+- `nos-priority-medium` (value 1000, preemption disabled, global default)
+- `nos-priority-high` (value 2000, preemption disabled)
+- `nos-priority-extra-high` (value 3000, preemption disabled)
+
+You can disable their creation or override names/values/descriptions with the `priorityClasses` values in the chart.
+
 ## Scheduler configuration
 
-The GPU Partitioner uses an internal scheduler to simulate the scheduling of the pending pods to determine whether a candidate GPU partitioning plan would make the pending pods schedulable.
-
-The GPU Partitioner reads the scheduler configuration from the ConfigMap defined by the field `gpuPartitioner.scheduler.config`, and it falls back to the default configuration if the ConfigMap is not found.
-You can edit this field to provide your custom scheduler configuration.
-
-If you installed `nos` with the `scheduler` flag enabled, the GPU Partitioner will use its configuration unless you specify a custom ConfigMap.
+The GPU Partitioner no longer embeds or drives an internal Kubernetes scheduler. The value `gpuPartitioner.scheduler.config` is currently a no-op and is kept in the chart only for backward compatibility. Partitioning decisions are made purely from pending Pods and the allowed MIG geometries described below.
 
 ## Available MIG geometries
 
@@ -30,9 +36,12 @@ You can edit this file to add new MIG geometries for new GPU models, or to edit 
 
 ## How it works
 
-The GPU Partitioner component watches for pending pods that cannot be scheduled due to lack of MIG/MPS resources they request. If it finds such pods, it checks the current partitioning state of the GPUs in the cluster and tries to find a new partitioning state that would allow to schedule them without deleting any of the used resources.
+The GPU Partitioner watches pending, unschedulable pods that request MIG profiles. It:
 
-It does that by using an internal k8s scheduler, so that before choosing a candidate partitioning, the GPU Partitioner simulates the scheduling to check whether the partitioning would actually allow to schedule the pending Pods. If multiple partitioning configuration can be used to schedule the pending Pods, the one that would result in the highest number of schedulable pods is chosen.
+- Sorts those pods by priority (higher first, defaulting missing priorities to Medium) and, within the same priority, by creation time (oldest first).
+- Walks that ordered list and aggregates the required MIG profiles, stopping when it reaches a higher-priority pod that cannot be satisfied; lower-priority pods are not planned if a higher-priority pod is blocked.
+- Skips planning if the requested profiles already exist on any MIG-enabled node.
+- Tries MIG-enabled nodes in turn and updates the geometry of the first node where the missing profiles can be provided without deleting in-use devices (respecting allowed geometries per GPU model).
 
 Moreover, just in the case of MIG partitioning, each specific GPU model allows to create only certain combinations of MIG profiles, which are called MIG geometries, so the GPU partitioner takes this constraint into account when trying to find a new partitioning. The available MIG geometries of each GPU model are defined in the field `gpuPartitioner.knownMigGeometries` field of the Helm chart.
 
@@ -54,7 +63,7 @@ Note that in some cases the MIG Agent might not be able to apply the desired MIG
 1. the MIG Agent never deletes MIG resources being in use by a Pod
 2. some MIG geometries require the MIG profiles to be created in a certain order, and due to reason (1) the MIG Agent might not be able to delete and re-create the existing MIG profiles in the order required by the new MIG geometry.
 
-In these cases, the MIG Agent tries to apply the desired partitioning by creating as many required resources as possible, in order to maximize the number of schedulable Pods. This can result in the MIG Agent applying the desired MIG geometry only partially.
+In these cases, the MIG Agent tries to apply the desired partitioning and rolls back to its previous state if it cannot complete the change safely.
 
 For further information regarding NVIDIA MIG and its integration with Kubernetes, please refer to the [NVIDIA MIG User Guide](https://docs.nvidia.com/datacenter/tesla/pdf/NVIDIA_MIG_User_Guide.pdf) and to the [MIG Support in Kubernetes](https://docs.nvidia.com/datacenter/cloud-native/kubernetes/mig-k8s.html) official documentation provided by NVIDIA.
 

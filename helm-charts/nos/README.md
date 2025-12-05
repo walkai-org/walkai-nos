@@ -15,6 +15,10 @@ The open-source platform for running AI workloads on k8s in an optimized way, bo
 
 * <https://github.com/nebuly-ai/nos>
 
+## Priority Awareness
+
+The chart can provision four PriorityClasses for GPU workloads: `nos-priority-low` (0), `nos-priority-medium` (1000, global default), `nos-priority-high` (2000), and `nos-priority-extra-high` (3000). Preemption is disabled on all of them. The GPU partitioner plans MIG repartitioning in priority order (age tie-breaker) and will not plan lower-priority pods if a higher-priority pod cannot be satisfied. You can disable or override these classes via the `priorityClasses` values.
+
 ## Values
 
 | Key | Type | Default | Description |
