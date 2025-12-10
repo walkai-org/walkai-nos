@@ -165,6 +165,10 @@ func (g *GPU) UpdateGeometryFor(requiredProfiles map[gpu.Slice]int) bool {
 	)
 
 	for _, candidate := range g.GetAllowedGeometries() {
+		// Work around for MIG API edge casee for the 3-2-1-1 geometry: only try it on idle GPUs.
+		if isBusySensitive3211Geometry(candidate) && !g.isIdle() && requiresBusySensitiveGeometry(requiredProfiles, candidate) {
+			continue
+		}
 		// If we cannot apply the geometry, then skip it
 		if canApplyGeometry, _ := g.CanApplyGeometry(candidate); !canApplyGeometry {
 			continue
@@ -255,10 +259,65 @@ func (g *GPU) HasFreeMigDevices() bool {
 	return len(g.GetFreeMigDevices()) > 0
 }
 
+func (g *GPU) isIdle() bool {
+	for _, q := range g.usedMigDevices {
+		if q > 0 {
+			return false
+		}
+	}
+	for _, q := range g.freeMigDevices {
+		if q > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 func (g *GPU) GetFreeMigDevices() map[ProfileName]int {
 	return g.freeMigDevices
 }
 
 func (g *GPU) GetUsedMigDevices() map[ProfileName]int {
 	return g.usedMigDevices
+}
+
+func isBusySensitive3211Geometry(candidate gpu.Geometry) bool {
+	geometries := []gpu.Geometry{
+		{
+			Profile3g20gb: 1,
+			Profile2g10gb: 1,
+			Profile1g5gb:  2,
+		},
+		{
+			Profile3g40gb: 1,
+			Profile2g20gb: 1,
+			Profile1g10gb: 2,
+		},
+	}
+
+	for _, g := range geometries {
+		if len(candidate) != len(g) {
+			continue
+		}
+		var match bool = true
+		for p, q := range g {
+			if candidate[p] != q {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
+}
+
+func requiresBusySensitiveGeometry(requiredProfiles map[gpu.Slice]int, candidate gpu.Geometry) bool {
+	for p := range candidate {
+		if requiredProfiles[p] == 0 {
+			return false
+		}
+	}
+	return true
 }
