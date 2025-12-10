@@ -18,12 +18,20 @@ package migagent
 
 import (
 	"context"
+	"fmt"
 	"github.com/nebuly-ai/nos/internal/controllers/migagent/plan"
+	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/resource"
 	migtest "github.com/nebuly-ai/nos/pkg/test/mocks/mig"
 	"github.com/stretchr/testify/assert"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"testing"
 	"time"
 )
@@ -209,6 +217,68 @@ func TestMigActuator_apply_RollbackDeletedResources(t *testing.T) {
 	assert.Error(t, err)
 	assert.Equal(t, 2, migClient.createCallCount)
 	assert.Equal(t, 1, migClient.deleteCallCount)
+}
+
+func TestMigActuator_apply_ResetSpecOnUsedDelete(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(scheme)
+	_ = v1alpha1.AddToScheme(scheme)
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+			Annotations: map[string]string{
+				fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, "3g.40gb"): "1",
+				v1alpha1.AnnotationPartitioningPlan:                         "plan-123",
+			},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node).Build()
+	migClient := &fakeMigClient{}
+
+	actuator := MigActuator{
+		Client:       k8sClient,
+		migClient:    migClient,
+		devicePlugin: fakeDevicePluginClient{},
+		nodeName:     "node-1",
+	}
+
+	planWithUsedDelete := plan.MigConfigPlan{
+		DeleteOperations: plan.DeleteOperationList{
+			{
+				Resources: gpu.DeviceList{
+					{
+						Device: resource.Device{
+							ResourceName: "nvidia.com/mig-3g.40gb",
+							DeviceId:     "used-3g",
+							Status:       resource.StatusUsed,
+						},
+						GpuIndex: 0,
+					},
+				},
+			},
+		},
+		CreateOperations: plan.CreateOperationList{
+			{
+				MigProfile: mig.Profile{GpuIndex: 0, Name: mig.Profile4g40gb},
+				Quantity:   1,
+			},
+		},
+	}
+
+	_, err := actuator.apply(context.Background(), planWithUsedDelete)
+	assert.NoError(t, err)
+	assert.Equal(t, 0, migClient.deleteCallCount)
+	assert.Equal(t, 0, migClient.createCallCount)
+
+	var updated v1.Node
+	err = k8sClient.Get(context.Background(), client.ObjectKey{Name: "node-1"}, &updated)
+	assert.NoError(t, err)
+	assert.Empty(t, updated.Annotations[v1alpha1.AnnotationPartitioningPlan])
+	for k := range updated.Annotations {
+		assert.NotContains(t, k, v1alpha1.AnnotationGpuSpecPrefix)
+	}
 }
 
 //func TestMigActuator_applyCreateOps(t *testing.T) {

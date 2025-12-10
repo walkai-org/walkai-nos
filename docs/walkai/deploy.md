@@ -78,7 +78,7 @@ clusterInfoExporter:
 
 ```bash
 helm install oci://ghcr.io/walkai-org/helm-charts/nos \
-  --version 0.0.4 \
+  --version 0.0.5 \
   --namespace nos-system \
   --generate-name \
   --create-namespace \

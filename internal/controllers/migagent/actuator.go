@@ -26,10 +26,12 @@ import (
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/util/predicate"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	"strings"
 	"time"
 )
 
@@ -158,6 +160,16 @@ func (a *MigActuator) apply(ctx context.Context, plan plan.MigConfigPlan) (ctrl.
 		"deleteOperations",
 		plan.DeleteOperations,
 	)
+
+	// If plan contains used resources, clear spec annotations and skip apply so that the partitioner recomputes.
+	if containsUsedResources(plan.DeleteOperations) {
+		logger.Info("plan contains used MIG resources in delete operations, resetting spec annotations and skipping apply")
+		if err := a.resetNodeSpec(ctx); err != nil {
+			logger.Error(err, "unable to reset node spec annotations")
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{}, nil
+	}
 
 	var restartRequired bool
 	var atLeastOneErr bool
@@ -307,4 +319,33 @@ func (a *MigActuator) SetupWithManager(mgr ctrl.Manager, controllerName string) 
 		).
 		Named(controllerName).
 		Complete(a)
+}
+
+func containsUsedResources(deleteOps plan.DeleteOperationList) bool {
+	for _, op := range deleteOps {
+		for _, r := range op.Resources {
+			if !r.IsFree() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// resetNodeSpec clears the desired MIG spec annotations and partitioning plan on the current node so that the
+// GPU partitioner recomputes a new plan based on the latest status.
+func (a *MigActuator) resetNodeSpec(ctx context.Context) error {
+	var node v1.Node
+	if err := a.Client.Get(ctx, types.NamespacedName{Name: a.nodeName}, &node); err != nil {
+		return err
+	}
+
+	updated := node.DeepCopy()
+	for k := range updated.Annotations {
+		if strings.HasPrefix(k, v1alpha1.AnnotationGpuSpecPrefix) || k == v1alpha1.AnnotationPartitioningPlan {
+			delete(updated.Annotations, k)
+		}
+	}
+
+	return a.Client.Patch(ctx, updated, client.MergeFrom(&node))
 }

@@ -324,6 +324,34 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected plan to prioritize older pod within the same priority class")
 }
 
+func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA100NodeStatusOnly7g()
+	pod := newPendingUnschedulableMigPod("pod-needing-2g", map[v1.ResourceName]string{
+		gpumig.Profile2g20gb.AsResourceName(): "1",
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), pod).
+		Build()
+
+	controller := NewController(client, scheme, 30*time.Second)
+	controller.InjectFunc(func() string { return "recreated-plan-id" })
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+
+	assert.Equal(t, "recreated-plan-id", patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan])
+	specKey := fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile2g20gb.String())
+	assert.Equal(t, "1", patchedNode.Annotations[specKey], "expected spec annotation for requested profile to be recreated")
+}
+
 func newA100NodeWithIdle7g() *v1.Node {
 	annotations := map[string]string{
 		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile1g10gb.String(), resource.StatusFree): "7",
@@ -360,6 +388,28 @@ func newA100NodeWithUsed7g() *v1.Node {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "node-a100-used-7g",
+			Labels: map[string]string{
+				constant.LabelNvidiaProduct:   gpu.GPUModel_A100_PCIe_80GB.String(),
+				constant.LabelNvidiaCount:     "1",
+				v1alpha1.LabelGpuPartitioning: gpu.PartitioningKindMig.String(),
+			},
+			Annotations: annotations,
+		},
+	}
+}
+
+func newA100NodeStatusOnly7g() *v1.Node {
+	annotations := map[string]string{
+		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile7g79gb.String(), resource.StatusFree): "1",
+	}
+
+	return &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-a100-status-only",
 			Labels: map[string]string{
 				constant.LabelNvidiaProduct:   gpu.GPUModel_A100_PCIe_80GB.String(),
 				constant.LabelNvidiaCount:     "1",
