@@ -486,6 +486,124 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 	}
 }
 
+func TestGPU__UpdateGeometryFor_Skip3211OnBusyGpu(t *testing.T) {
+	originalConfigs := cloneKnownGeometries(mig.GetKnownGeometries())
+	customConfigs := map[gpu.Model][]gpu.Geometry{
+		gpu.GPUModel_A100_SXM4_40GB: {
+			{
+				mig.Profile3g20gb: 1,
+				mig.Profile2g10gb: 1,
+				mig.Profile1g5gb:  2,
+			},
+			{
+				mig.Profile3g20gb: 1,
+			},
+		},
+		gpu.GPUModel_A100_PCIe_80GB: {
+			{
+				mig.Profile3g40gb: 1,
+				mig.Profile2g20gb: 1,
+				mig.Profile1g10gb: 2,
+			},
+			{
+				mig.Profile3g40gb: 1,
+			},
+		},
+	}
+	require.NoError(t, mig.SetKnownGeometries(customConfigs))
+	t.Cleanup(func() {
+		require.NoError(t, mig.SetKnownGeometries(originalConfigs))
+	})
+
+	t.Run("skips 3-2-1-1 geometry on non-idle GPU", func(t *testing.T) {
+		g := mig.NewGpuOrPanic(
+			gpu.GPUModel_A100_SXM4_40GB,
+			0,
+			map[mig.ProfileName]int{},
+			map[mig.ProfileName]int{
+				mig.Profile1g5gb: 2,
+			},
+		)
+		required := map[gpu.Slice]int{
+			mig.Profile3g20gb: 1,
+			mig.Profile2g10gb: 1,
+			mig.Profile1g5gb:  2,
+		}
+
+		updated := g.UpdateGeometryFor(required)
+		assert.True(t, updated)
+		assert.Equal(t, gpu.Geometry{
+			mig.Profile3g20gb: 1,
+		}, g.GetGeometry())
+	})
+
+	t.Run("allows 3-2-1-1 geometry on idle GPU", func(t *testing.T) {
+		g := mig.NewGpuOrPanic(
+			gpu.GPUModel_A100_SXM4_40GB,
+			0,
+			map[mig.ProfileName]int{},
+			map[mig.ProfileName]int{},
+		)
+		required := map[gpu.Slice]int{
+			mig.Profile3g20gb: 1,
+			mig.Profile2g10gb: 1,
+			mig.Profile1g5gb:  2,
+		}
+
+		updated := g.UpdateGeometryFor(required)
+		assert.True(t, updated)
+		assert.Equal(t, gpu.Geometry{
+			mig.Profile3g20gb: 1,
+			mig.Profile2g10gb: 1,
+			mig.Profile1g5gb:  2,
+		}, g.GetGeometry())
+	})
+
+	t.Run("skips 3-2-1-1 geometry on non-idle 80GB GPU", func(t *testing.T) {
+		g := mig.NewGpuOrPanic(
+			gpu.GPUModel_A100_PCIe_80GB,
+			0,
+			map[mig.ProfileName]int{},
+			map[mig.ProfileName]int{
+				mig.Profile1g10gb: 1,
+			},
+		)
+		required := map[gpu.Slice]int{
+			mig.Profile3g40gb: 1,
+			mig.Profile2g20gb: 1,
+			mig.Profile1g10gb: 2,
+		}
+
+		updated := g.UpdateGeometryFor(required)
+		assert.True(t, updated)
+		assert.Equal(t, gpu.Geometry{
+			mig.Profile3g40gb: 1,
+		}, g.GetGeometry())
+	})
+
+	t.Run("allows 3-2-1-1 geometry on idle 80GB GPU", func(t *testing.T) {
+		g := mig.NewGpuOrPanic(
+			gpu.GPUModel_A100_PCIe_80GB,
+			0,
+			map[mig.ProfileName]int{},
+			map[mig.ProfileName]int{},
+		)
+		required := map[gpu.Slice]int{
+			mig.Profile3g40gb: 1,
+			mig.Profile2g20gb: 1,
+			mig.Profile1g10gb: 2,
+		}
+
+		updated := g.UpdateGeometryFor(required)
+		assert.True(t, updated)
+		assert.Equal(t, gpu.Geometry{
+			mig.Profile3g40gb: 1,
+			mig.Profile2g20gb: 1,
+			mig.Profile1g10gb: 2,
+		}, g.GetGeometry())
+	})
+}
+
 func TestGeometry__AsResources(t *testing.T) {
 	testCases := []struct {
 		name     string
