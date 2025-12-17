@@ -166,7 +166,7 @@ func (g *GPU) UpdateGeometryFor(requiredProfiles map[gpu.Slice]int) bool {
 
 	for _, candidate := range g.GetAllowedGeometries() {
 		// Work around for MIG API edge casee for the 3-2-1-1 geometry: only try it on idle GPUs.
-		if isBusySensitive3211Geometry(candidate) && !g.isIdle() && requiresBusySensitiveGeometry(requiredProfiles, candidate) {
+		if isBusySensitive3211Geometry(candidate) && !g.isIdle() {
 			continue
 		}
 		// If we cannot apply the geometry, then skip it
@@ -311,13 +311,4 @@ func isBusySensitive3211Geometry(candidate gpu.Geometry) bool {
 		}
 	}
 	return false
-}
-
-func requiresBusySensitiveGeometry(requiredProfiles map[gpu.Slice]int, candidate gpu.Geometry) bool {
-	for p := range candidate {
-		if requiredProfiles[p] == 0 {
-			return false
-		}
-	}
-	return true
 }
