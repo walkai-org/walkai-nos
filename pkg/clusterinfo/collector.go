@@ -41,6 +41,8 @@ func (realClock) Now() time.Time {
 	return time.Now()
 }
 
+const completedPodRetention = 5 * time.Minute
+
 // Collector retrieves information about GPU inventory and GPU-consuming pods from the cluster.
 type Collector struct {
 	kube  kubernetes.Interface
@@ -71,13 +73,29 @@ func (c Collector) Collect(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 
-	inventory := buildGPUInventory(nodes.Items, pods.Items)
+	now := c.clock.Now().UTC()
+	filteredPods := filterCompletedPods(pods.Items, now, completedPodRetention)
+
+	inventory := buildGPUInventory(nodes.Items, filteredPods)
 	snapshot := Snapshot{
-		Timestamp: c.clock.Now().UTC(),
+		Timestamp: now,
 		GPUs:      inventory,
-		Pods:      buildPodSummaries(pods.Items),
+		Pods:      buildPodSummaries(filteredPods),
 	}
 	return snapshot, nil
+}
+
+func filterCompletedPods(pods []v1.Pod, now time.Time, retention time.Duration) []v1.Pod {
+	cutoff := now.Add(-retention)
+	filtered := make([]v1.Pod, 0, len(pods))
+	for _, pod := range pods {
+		finishedAt := podFinishTime(pod)
+		if finishedAt != nil && finishedAt.Before(cutoff) {
+			continue
+		}
+		filtered = append(filtered, pod)
+	}
+	return filtered
 }
 
 type gpuTotals struct {

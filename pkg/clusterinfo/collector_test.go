@@ -71,6 +71,54 @@ func Test_buildGPUInventory(t *testing.T) {
 	}
 }
 
+func Test_filterCompletedPods(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2023, 1, 1, 12, 0, 0, 0, time.UTC)
+	terminatedPod := func(name string, phase v1.PodPhase, finishedAt time.Time) v1.Pod {
+		return v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: name,
+			},
+			Status: v1.PodStatus{
+				Phase: phase,
+				ContainerStatuses: []v1.ContainerStatus{
+					{
+						Name: "c",
+						State: v1.ContainerState{
+							Terminated: &v1.ContainerStateTerminated{
+								FinishedAt: metav1.NewTime(finishedAt),
+							},
+						},
+					},
+				},
+			},
+		}
+	}
+	pods := []v1.Pod{
+		terminatedPod("old-succeeded", v1.PodSucceeded, now.Add(-6*time.Minute)),
+		terminatedPod("recent-succeeded", v1.PodSucceeded, now.Add(-4*time.Minute)),
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "running",
+			},
+			Status: v1.PodStatus{
+				Phase: v1.PodRunning,
+			},
+		},
+		terminatedPod("old-failed", v1.PodFailed, now.Add(-9*time.Minute)),
+	}
+
+	got := filterCompletedPods(pods, now, completedPodRetention)
+	gotNames := make([]string, 0, len(got))
+	for _, pod := range got {
+		gotNames = append(gotNames, pod.Name)
+	}
+	want := []string{"recent-succeeded", "running"}
+	if diff := cmp.Diff(want, gotNames); diff != "" {
+		t.Fatalf("unexpected diff (-want +got):\n%s", diff)
+	}
+}
+
 func Test_buildGPUInventory_FallbackToCapacity(t *testing.T) {
 	t.Parallel()
 	nodes := []v1.Node{
