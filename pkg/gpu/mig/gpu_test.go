@@ -469,8 +469,8 @@ func TestGPU__UpdateGeometryFor(t *testing.T) {
 				mig.Profile3g40gb: 1,
 			},
 			expectedGeometry: gpu.Geometry{
-				mig.Profile1g10gb: 2,
-				mig.Profile2g20gb: 1,
+				// 3-2-1-1 geometry is skipped on busy GPUs, so we pick the next best option.
+				mig.Profile2g20gb: 2,
 				mig.Profile3g40gb: 1,
 			},
 			expectedUpdated: true,
