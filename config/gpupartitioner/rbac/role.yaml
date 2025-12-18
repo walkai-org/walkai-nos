@@ -21,3 +21,9 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - policy
+  resources:
+  - pods/eviction
+  verbs:
+  - create

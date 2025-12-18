@@ -136,6 +136,9 @@ gpuPartitioner:
 
   # -- Interval at which the GPU partitioner reconciler wakes up even without new Pod events.
   requeueIntervalSeconds: 10
+  preemption:
+    # -- Enable eviction-based preemption when repartitioning cannot satisfy highest-priority pending pods.
+    enabled: false
 
   leaderElection:
     # -- Enables/Disables the leader election of the GPU Partitioner controller manager.

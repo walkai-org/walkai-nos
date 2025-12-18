@@ -281,6 +281,24 @@ func (g *GPU) GetUsedMigDevices() map[ProfileName]int {
 	return g.usedMigDevices
 }
 
+// ReleaseProfiles moves used MIG devices back to free for the given profiles.
+// Returns false if the GPU does not have enough used devices to cover the requested profiles.
+func (g *GPU) ReleaseProfiles(profiles map[ProfileName]int) bool {
+	for profile, quantity := range profiles {
+		if g.usedMigDevices[profile] < quantity {
+			return false
+		}
+	}
+	for profile, quantity := range profiles {
+		g.usedMigDevices[profile] -= quantity
+		if g.usedMigDevices[profile] == 0 {
+			delete(g.usedMigDevices, profile)
+		}
+		g.freeMigDevices[profile] += quantity
+	}
+	return true
+}
+
 func isBusySensitive3211Geometry(candidate gpu.Geometry) bool {
 	geometries := []gpu.Geometry{
 		{

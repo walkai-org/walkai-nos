@@ -338,7 +338,7 @@ func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second)
+	controller := NewController(client, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string { return "recreated-plan-id" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
