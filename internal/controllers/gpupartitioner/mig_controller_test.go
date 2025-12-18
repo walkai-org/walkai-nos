@@ -162,7 +162,7 @@ func TestController_ReconcileAggregatesPodsAndRequeues(t *testing.T) {
 		WithObjects(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute)
+	controller := NewController(client, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "test-plan-id" })
 
 	result, err := controller.Reconcile(context.Background(), ctrl.Request{
@@ -196,7 +196,7 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second)
+	controller := NewController(client, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string {
 		t.Fatal("planIDSource should not be called when profiles are already present")
 		return ""
@@ -225,7 +225,7 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 5*time.Second)
+	controller := NewController(client, scheme, 5*time.Second, false)
 	controller.InjectFunc(func() string { return "freed-plan-id" })
 
 	// First reconcile: 7g slice is in use, so repartition cannot happen.
@@ -276,7 +276,7 @@ func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *te
 		WithObjects(node.DeepCopy(), highPriorityPod, lowPriorityPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute)
+	controller := NewController(client, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "plan-id-should-not-be-set" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -311,7 +311,7 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 		WithObjects(node.DeepCopy(), youngerPod, olderPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute)
+	controller := NewController(client, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "age-ordered-plan" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})

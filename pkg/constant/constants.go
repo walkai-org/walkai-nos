@@ -58,6 +58,11 @@ const (
 const (
 	// EnvVarNodeName is the name of the env variable containing the name of the node
 	EnvVarNodeName = "NODE_NAME"
+
+	// RepartitioningTaintKey is the taint key used while a node is being repartitioned.
+	RepartitioningTaintKey = "nos.nebuly.com/repartitioning"
+	// RepartitioningTaintValue is the taint value used while a node is being repartitioned.
+	RepartitioningTaintValue = "planned"
 )
 
 // Labels

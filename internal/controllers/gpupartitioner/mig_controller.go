@@ -43,15 +43,17 @@ type Controller struct {
 	partitioner     *partitionermig.Partitioner
 	planIDSource    func() string
 	requeueInterval time.Duration
+	preemption      bool
 }
 
-func NewController(client client.Client, scheme *runtime.Scheme, requeueInterval time.Duration) *Controller {
+func NewController(client client.Client, scheme *runtime.Scheme, requeueInterval time.Duration, preemptionEnabled bool) *Controller {
 	return &Controller{
 		Client:          client,
 		Scheme:          scheme,
 		partitioner:     partitionermig.NewPartitioner(client),
 		planIDSource:    partitionermig.NewPartitioningPlanID,
 		requeueInterval: requeueInterval,
+		preemption:      preemptionEnabled,
 	}
 }
 

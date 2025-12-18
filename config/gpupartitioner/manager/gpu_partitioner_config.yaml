@@ -23,6 +23,9 @@ leaderElection:
 # Interval at which the GPU partitioner reconciler wakes up even without new Pod events.
 requeueIntervalSeconds: 10
 
+# Enable eviction-based preemption when repartitioning cannot satisfy highest-priority pending pods.
+preemptionEnabled: false
+
 # Optional path to the configuration file of the k8s scheduler used internally by the GPU
 # partitioner for simulating Pods scheduling.
 #

@@ -85,6 +85,11 @@ helm install oci://ghcr.io/walkai-org/helm-charts/nos \
   -f values.yml
 ```
 
+### Label the node with
+```bash
+kubectl label nodes walkai-dev "nos.nebuly.com/gpu-partitioning=mig"
+```
+
 ### API client RBAC and token
 The clusterinfoexporter kustomization now also provisions the `walkai` namespace together with an `api-client` service account, the `discovery-minimal` and `admin` ClusterRoleBindings, and the long-lived `api-client-permanent-token` Secret. After the manifests are applied you can retrieve the token that your API needs with:
 ```bash
