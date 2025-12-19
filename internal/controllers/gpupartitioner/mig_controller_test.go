@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -214,6 +215,7 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA100NodeWithIdle1gAndUsed3g()
 	node.Spec.Taints = []v1.Taint{{
@@ -245,6 +247,7 @@ func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *
 func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA100NodeWithUsed7g()
 	pod := newPendingUnschedulableMigPod("pod-needing-1g", map[v1.ResourceName]string{
@@ -285,6 +288,7 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA30NodeWithoutMigDevices()
 	extraHigh := int32(3000)
@@ -321,6 +325,7 @@ func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *te
 func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA30NodeWithoutMigDevices()
 	medium := int32(1000)
@@ -353,6 +358,46 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 	assert.Equal(t, "age-ordered-plan", patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan])
 	expectedKey := fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile4g24gb.String())
 	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected plan to prioritize older pod within the same priority class")
+}
+
+func TestController_ReconcilePreemptsLowerPriorityWhenProfileIsFullyUsed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
+
+	node := newA100NodeWithUsed7g()
+
+	lowPriority := int32(1000)
+	highPriority := int32(2000)
+
+	running := newRunningMigPodOnNode("running-7g", node.Name, map[v1.ResourceName]string{
+		gpumig.Profile7g79gb.AsResourceName(): "1",
+	}, lowPriority)
+
+	pending := newPendingUnschedulableMigPod("pending-7g-high", map[v1.ResourceName]string{
+		gpumig.Profile7g79gb.AsResourceName(): "1",
+	})
+	pending.Spec.Priority = &highPriority
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), running, pending).
+		Build()
+
+	controller := NewController(client, scheme, 30*time.Second, true)
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var taintedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &taintedNode))
+	require.True(t, nodeHasRepartitioningTaint(taintedNode), "expected repartitioning taint during preemption")
+
+	var eviction policyv1.Eviction
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
+		Namespace: running.Namespace,
+		Name:      running.Name,
+	}, &eviction))
 }
 
 func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
@@ -483,6 +528,39 @@ func newPendingUnschedulableMigPod(name string, requests map[v1.ResourceName]str
 				Status: v1.ConditionFalse,
 				Reason: v1.PodReasonUnschedulable,
 			}},
+		},
+	}
+}
+
+func newRunningMigPodOnNode(name, nodeName string, requests map[v1.ResourceName]string, priority int32) *v1.Pod {
+	resources := make(v1.ResourceList, len(requests))
+	for resourceName, quantity := range requests {
+		resources[resourceName] = k8sresource.MustParse(quantity)
+	}
+
+	return &v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			NodeName: nodeName,
+			Priority: &priority,
+			Containers: []v1.Container{{
+				Name:  "test",
+				Image: "busybox",
+				Resources: v1.ResourceRequirements{
+					Requests: resources,
+					Limits:   resources,
+				},
+			}},
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
 		},
 	}
 }
