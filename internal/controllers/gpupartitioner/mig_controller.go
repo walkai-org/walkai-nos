@@ -31,6 +31,7 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -47,22 +48,34 @@ type Controller struct {
 	planIDSource    func() string
 	requeueInterval time.Duration
 	preemption      bool
+	kubeClient      kubernetes.Interface
+	evictFunc       func(context.Context, []v1.Pod) error
 }
 
-func NewController(client client.Client, scheme *runtime.Scheme, requeueInterval time.Duration, preemptionEnabled bool) *Controller {
-	return &Controller{
+func NewController(
+	client client.Client,
+	kubeClient kubernetes.Interface,
+	scheme *runtime.Scheme,
+	requeueInterval time.Duration,
+	preemptionEnabled bool,
+) *Controller {
+	controller := &Controller{
 		Client:          client,
+		kubeClient:      kubeClient,
 		Scheme:          scheme,
 		partitioner:     partitionermig.NewPartitioner(client),
 		planIDSource:    partitionermig.NewPartitioningPlanID,
 		requeueInterval: requeueInterval,
 		preemption:      preemptionEnabled,
 	}
+
+	controller.evictFunc = controller.evictPodsUsingAPI
+	return controller
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;patch
-//+kubebuilder:rbac:groups=policy,resources=pods/eviction,verbs=create
+//+kubebuilder:rbac:groups="core",resources=pods/eviction,verbs=create
 
 func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -418,7 +431,7 @@ func (c *Controller) tryPreemption(ctx context.Context, nodes []v1.Node, pending
 		}
 		tainted = true
 
-		if err := c.evictPods(ctx, victims); err != nil {
+		if err := c.evictFunc(ctx, victims); err != nil {
 			logger.Error(err, "failed to evict pods for preemption", "node", node.Name)
 			if tainted {
 				_ = c.removeRepartitioningTaint(ctx, &node)
@@ -564,7 +577,7 @@ func (c *Controller) cleanupRepartitioningTaints(ctx context.Context, nodes []v1
 	return nil
 }
 
-func (c *Controller) evictPods(ctx context.Context, pods []v1.Pod) error {
+func (c *Controller) evictPodsUsingAPI(ctx context.Context, pods []v1.Pod) error {
 	for _, pod := range pods {
 		eviction := &policyv1.Eviction{
 			TypeMeta: metav1.TypeMeta{
@@ -576,7 +589,7 @@ func (c *Controller) evictPods(ctx context.Context, pods []v1.Pod) error {
 				Namespace: pod.Namespace,
 			},
 		}
-		if err := c.Create(ctx, eviction); err != nil {
+		if err := c.kubeClient.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction); err != nil {
 			return err
 		}
 	}

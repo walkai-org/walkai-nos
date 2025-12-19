@@ -36,6 +36,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	fakekube "k8s.io/client-go/kubernetes/fake"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -163,7 +164,8 @@ func TestController_ReconcileAggregatesPodsAndRequeues(t *testing.T) {
 		WithObjects(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile)
+	controller := NewController(client, kubeClient, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "test-plan-id" })
 
 	result, err := controller.Reconcile(context.Background(), ctrl.Request{
@@ -197,7 +199,8 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string {
 		t.Fatal("planIDSource should not be called when profiles are already present")
 		return ""
@@ -232,7 +235,8 @@ func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
 	require.NoError(t, err)
@@ -259,7 +263,8 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 5*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 5*time.Second, false)
 	controller.InjectFunc(func() string { return "freed-plan-id" })
 
 	// First reconcile: 7g slice is in use, so repartition cannot happen.
@@ -311,7 +316,8 @@ func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *te
 		WithObjects(node.DeepCopy(), highPriorityPod, lowPriorityPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), highPriorityPod, lowPriorityPod)
+	controller := NewController(client, kubeClient, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "plan-id-should-not-be-set" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -347,7 +353,8 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 		WithObjects(node.DeepCopy(), youngerPod, olderPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), youngerPod, olderPod)
+	controller := NewController(client, kubeClient, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "age-ordered-plan" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -384,7 +391,16 @@ func TestController_ReconcilePreemptsLowerPriorityWhenProfileIsFullyUsed(t *test
 		WithObjects(node.DeepCopy(), running, pending).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, true)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), running, pending)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, true)
+
+	evicted := false
+	controller.evictFunc = func(_ context.Context, pods []v1.Pod) error {
+		if len(pods) > 0 && pods[0].Name == running.Name {
+			evicted = true
+		}
+		return nil
+	}
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
 	require.NoError(t, err)
@@ -393,11 +409,7 @@ func TestController_ReconcilePreemptsLowerPriorityWhenProfileIsFullyUsed(t *test
 	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &taintedNode))
 	require.True(t, nodeHasRepartitioningTaint(taintedNode), "expected repartitioning taint during preemption")
 
-	var eviction policyv1.Eviction
-	require.NoError(t, client.Get(context.Background(), types.NamespacedName{
-		Namespace: running.Namespace,
-		Name:      running.Name,
-	}, &eviction))
+	require.True(t, evicted, "expected eviction to be issued")
 }
 
 func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
@@ -414,7 +426,8 @@ func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string { return "recreated-plan-id" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})

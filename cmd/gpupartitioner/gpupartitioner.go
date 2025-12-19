@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -98,6 +99,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	kubeClient, err := kubernetes.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		setupLog.Error(err, "unable to build kubernetes clientset")
+		os.Exit(1)
+	}
+
 	nodeController := gpupartitioner.NewNodeController(
 		mgr.GetClient(),
 		mgr.GetScheme(),
@@ -108,7 +115,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	migController := gpupartitioner.NewController(mgr.GetClient(), mgr.GetScheme(), requeueInterval, config.PreemptionEnabled)
+	migController := gpupartitioner.NewController(mgr.GetClient(), kubeClient, mgr.GetScheme(), requeueInterval, config.PreemptionEnabled)
 	if err = migController.SetupWithManager(mgr, constant.MigPartitionerControllerName); err != nil {
 		setupLog.Error(err, "unable to create MIG controller")
 		os.Exit(1)
