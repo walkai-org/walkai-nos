@@ -85,6 +85,10 @@ func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result
 
 	sortedPending := sortPodsByPriorityAndAge(pendingPods)
 	if len(sortedPending) == 0 {
+		if err := c.cleanupRepartitioningTaints(ctx, nodes); err != nil {
+			logger.Error(err, "failed to clear repartitioning taints when no pending MIG pods are present")
+			return result, err
+		}
 		logger.V(1).Info("no pending unschedulable MIG pods found, skipping")
 		return result, nil
 	}
@@ -374,11 +378,16 @@ func podPriorityOrDefault(pod v1.Pod) int32 {
 }
 
 func (c *Controller) tryPlanWithoutPreemption(ctx context.Context, nodes []v1.Node, pendingPods []v1.Pod) (bool, error) {
+	logger := log.FromContext(ctx)
 	requestedForPlan := c.buildRequestedProfilesPlan(nodes, pendingPods)
 	if len(requestedForPlan) == 0 {
 		return false, nil
 	}
 	if c.profileAlreadyPresent(nodes, requestedForPlan) {
+		if err := c.cleanupRepartitioningTaints(ctx, nodes); err != nil {
+			logger.Error(err, "failed to clear repartitioning taints when requested profiles are already available")
+			return false, err
+		}
 		return false, nil
 	}
 	return c.tryRepartition(ctx, nodes, requestedForPlan)
@@ -522,6 +531,18 @@ func convertProfilesToSlices(profiles map[gpumig.ProfileName]int) map[gpu.Slice]
 	return requiredSlices
 }
 
+func (c *Controller) cleanupRepartitioningTaints(ctx context.Context, nodes []v1.Node) error {
+	for i := range nodes {
+		if !nodeHasRepartitioningTaint(nodes[i]) {
+			continue
+		}
+		if err := c.removeRepartitioningTaint(ctx, &nodes[i]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c *Controller) evictPods(ctx context.Context, pods []v1.Pod) error {
 	for _, pod := range pods {
 		eviction := &policyv1.Eviction{
@@ -578,4 +599,13 @@ func (c *Controller) removeRepartitioningTaint(ctx context.Context, node *v1.Nod
 	}
 	current.Spec.Taints = newTaints
 	return c.Patch(ctx, current, client.MergeFrom(original))
+}
+
+func nodeHasRepartitioningTaint(node v1.Node) bool {
+	for _, t := range node.Spec.Taints {
+		if t.Key == constant.RepartitioningTaintKey {
+			return true
+		}
+	}
+	return false
 }

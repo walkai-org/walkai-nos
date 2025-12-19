@@ -211,6 +211,37 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available")
 }
 
+func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA100NodeWithIdle1gAndUsed3g()
+	node.Spec.Taints = []v1.Taint{{
+		Key:    constant.RepartitioningTaintKey,
+		Value:  constant.RepartitioningTaintValue,
+		Effect: v1.TaintEffectNoSchedule,
+	}}
+	pod := newPendingUnschedulableMigPod("pod-needing-existing-profile", map[v1.ResourceName]string{
+		gpumig.Profile1g10gb.AsResourceName(): "1",
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), pod).
+		Build()
+
+	controller := NewController(client, scheme, 30*time.Second, false)
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+
+	assert.Empty(t, patchedNode.Spec.Taints, "repartitioning taint should be cleared once requested profiles are already present")
+	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available")
+}
+
 func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
