@@ -18,6 +18,9 @@ package gpupartitioner
 
 import (
 	"context"
+	"sort"
+	"time"
+
 	partitionermig "github.com/nebuly-ai/nos/internal/partitioning/mig"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
 	"github.com/nebuly-ai/nos/pkg/constant"
@@ -28,13 +31,12 @@ import (
 	policyv1 "k8s.io/api/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/kubernetes"
 	framework "k8s.io/kubernetes/pkg/scheduler/framework"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	"sort"
-	"time"
 )
 
 // Controller reacts to pending Pods that request MIG resources and, when none of the MIG-enabled nodes currently
@@ -46,22 +48,34 @@ type Controller struct {
 	planIDSource    func() string
 	requeueInterval time.Duration
 	preemption      bool
+	kubeClient      kubernetes.Interface
+	evictFunc       func(context.Context, []v1.Pod) error
 }
 
-func NewController(client client.Client, scheme *runtime.Scheme, requeueInterval time.Duration, preemptionEnabled bool) *Controller {
-	return &Controller{
+func NewController(
+	client client.Client,
+	kubeClient kubernetes.Interface,
+	scheme *runtime.Scheme,
+	requeueInterval time.Duration,
+	preemptionEnabled bool,
+) *Controller {
+	controller := &Controller{
 		Client:          client,
+		kubeClient:      kubeClient,
 		Scheme:          scheme,
 		partitioner:     partitionermig.NewPartitioner(client),
 		planIDSource:    partitionermig.NewPartitioningPlanID,
 		requeueInterval: requeueInterval,
 		preemption:      preemptionEnabled,
 	}
+
+	controller.evictFunc = controller.evictPodsUsingAPI
+	return controller
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;patch
-//+kubebuilder:rbac:groups=policy,resources=pods/eviction,verbs=create
+//+kubebuilder:rbac:groups="core",resources=pods/eviction,verbs=create
 
 func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
@@ -417,7 +431,7 @@ func (c *Controller) tryPreemption(ctx context.Context, nodes []v1.Node, pending
 		}
 		tainted = true
 
-		if err := c.evictPods(ctx, victims); err != nil {
+		if err := c.evictFunc(ctx, victims); err != nil {
 			logger.Error(err, "failed to evict pods for preemption", "node", node.Name)
 			if tainted {
 				_ = c.removeRepartitioningTaint(ctx, &node)
@@ -441,7 +455,12 @@ func (c *Controller) findVictims(ctx context.Context, node v1.Node, targetPod v1
 	targetProfiles := gpumig.GetRequestedProfiles(targetPod)
 	requiredSlices := convertProfilesToSlices(targetProfiles)
 
-	// If we can satisfy without victims, return.
+	// If current free capacity already satisfies the request, return without victims.
+	if hasFreeCapacityFor(migNode.FreeGeometry(), targetProfiles) {
+		return nil, true, nil
+	}
+
+	// If reconfiguration without victims would work, return.
 	cloned := migNode.Clone().(*gpumig.Node)
 	if updated, err := cloned.UpdateGeometryFor(requiredSlices); err == nil && updated && providesRequestedProfiles(*cloned, targetProfiles) {
 		return nil, true, nil
@@ -465,10 +484,16 @@ func (c *Controller) findVictims(ctx context.Context, node v1.Node, targetPod v1
 			continue
 		}
 
-		testClone := working.Clone().(*gpumig.Node)
-		required := convertProfilesToSlices(targetProfiles)
-		updated, err := testClone.UpdateGeometryFor(required)
 		victims = append(victims, victim)
+
+		// If free capacity now satisfies the target, we're done.
+		if hasFreeCapacityFor(working.FreeGeometry(), targetProfiles) {
+			return victims, true, nil
+		}
+
+		// Try reconfiguration with current freed capacity.
+		testClone := working.Clone().(*gpumig.Node)
+		updated, err := testClone.UpdateGeometryFor(requiredSlices)
 		if err != nil {
 			continue
 		}
@@ -531,6 +556,15 @@ func convertProfilesToSlices(profiles map[gpumig.ProfileName]int) map[gpu.Slice]
 	return requiredSlices
 }
 
+func hasFreeCapacityFor(free map[gpu.Slice]int, requested map[gpumig.ProfileName]int) bool {
+	for profile, quantity := range requested {
+		if free[profile] < quantity {
+			return false
+		}
+	}
+	return true
+}
+
 func (c *Controller) cleanupRepartitioningTaints(ctx context.Context, nodes []v1.Node) error {
 	for i := range nodes {
 		if !nodeHasRepartitioningTaint(nodes[i]) {
@@ -543,7 +577,7 @@ func (c *Controller) cleanupRepartitioningTaints(ctx context.Context, nodes []v1
 	return nil
 }
 
-func (c *Controller) evictPods(ctx context.Context, pods []v1.Pod) error {
+func (c *Controller) evictPodsUsingAPI(ctx context.Context, pods []v1.Pod) error {
 	for _, pod := range pods {
 		eviction := &policyv1.Eviction{
 			TypeMeta: metav1.TypeMeta{
@@ -555,7 +589,7 @@ func (c *Controller) evictPods(ctx context.Context, pods []v1.Pod) error {
 				Namespace: pod.Namespace,
 			},
 		}
-		if err := c.Create(ctx, eviction); err != nil {
+		if err := c.kubeClient.CoreV1().Pods(pod.Namespace).EvictV1(ctx, eviction); err != nil {
 			return err
 		}
 	}

@@ -31,10 +31,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	k8sresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	fakekube "k8s.io/client-go/kubernetes/fake"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
@@ -162,7 +164,8 @@ func TestController_ReconcileAggregatesPodsAndRequeues(t *testing.T) {
 		WithObjects(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile)
+	controller := NewController(client, kubeClient, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "test-plan-id" })
 
 	result, err := controller.Reconcile(context.Background(), ctrl.Request{
@@ -196,7 +199,8 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string {
 		t.Fatal("planIDSource should not be called when profiles are already present")
 		return ""
@@ -214,6 +218,7 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA100NodeWithIdle1gAndUsed3g()
 	node.Spec.Taints = []v1.Taint{{
@@ -230,7 +235,8 @@ func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
 	require.NoError(t, err)
@@ -245,6 +251,7 @@ func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *
 func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA100NodeWithUsed7g()
 	pod := newPendingUnschedulableMigPod("pod-needing-1g", map[v1.ResourceName]string{
@@ -256,7 +263,8 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 5*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 5*time.Second, false)
 	controller.InjectFunc(func() string { return "freed-plan-id" })
 
 	// First reconcile: 7g slice is in use, so repartition cannot happen.
@@ -285,6 +293,7 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA30NodeWithoutMigDevices()
 	extraHigh := int32(3000)
@@ -307,7 +316,8 @@ func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *te
 		WithObjects(node.DeepCopy(), highPriorityPod, lowPriorityPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), highPriorityPod, lowPriorityPod)
+	controller := NewController(client, kubeClient, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "plan-id-should-not-be-set" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -321,6 +331,7 @@ func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *te
 func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
 
 	node := newA30NodeWithoutMigDevices()
 	medium := int32(1000)
@@ -342,7 +353,8 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 		WithObjects(node.DeepCopy(), youngerPod, olderPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), youngerPod, olderPod)
+	controller := NewController(client, kubeClient, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "age-ordered-plan" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -353,6 +365,51 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 	assert.Equal(t, "age-ordered-plan", patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan])
 	expectedKey := fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile4g24gb.String())
 	assert.NotEmpty(t, patchedNode.Annotations[expectedKey], "expected plan to prioritize older pod within the same priority class")
+}
+
+func TestController_ReconcilePreemptsLowerPriorityWhenProfileIsFullyUsed(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
+
+	node := newA100NodeWithUsed7g()
+
+	lowPriority := int32(1000)
+	highPriority := int32(2000)
+
+	running := newRunningMigPodOnNode("running-7g", node.Name, map[v1.ResourceName]string{
+		gpumig.Profile7g79gb.AsResourceName(): "1",
+	}, lowPriority)
+
+	pending := newPendingUnschedulableMigPod("pending-7g-high", map[v1.ResourceName]string{
+		gpumig.Profile7g79gb.AsResourceName(): "1",
+	})
+	pending.Spec.Priority = &highPriority
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), running, pending).
+		Build()
+
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), running, pending)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, true)
+
+	evicted := false
+	controller.evictFunc = func(_ context.Context, pods []v1.Pod) error {
+		if len(pods) > 0 && pods[0].Name == running.Name {
+			evicted = true
+		}
+		return nil
+	}
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var taintedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &taintedNode))
+	require.True(t, nodeHasRepartitioningTaint(taintedNode), "expected repartitioning taint during preemption")
+
+	require.True(t, evicted, "expected eviction to be issued")
 }
 
 func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
@@ -369,7 +426,8 @@ func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second, false)
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), pod)
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string { return "recreated-plan-id" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -483,6 +541,39 @@ func newPendingUnschedulableMigPod(name string, requests map[v1.ResourceName]str
 				Status: v1.ConditionFalse,
 				Reason: v1.PodReasonUnschedulable,
 			}},
+		},
+	}
+}
+
+func newRunningMigPodOnNode(name, nodeName string, requests map[v1.ResourceName]string, priority int32) *v1.Pod {
+	resources := make(v1.ResourceList, len(requests))
+	for resourceName, quantity := range requests {
+		resources[resourceName] = k8sresource.MustParse(quantity)
+	}
+
+	return &v1.Pod{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Pod",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: "default",
+		},
+		Spec: v1.PodSpec{
+			NodeName: nodeName,
+			Priority: &priority,
+			Containers: []v1.Container{{
+				Name:  "test",
+				Image: "busybox",
+				Resources: v1.ResourceRequirements{
+					Requests: resources,
+					Limits:   resources,
+				},
+			}},
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
 		},
 	}
 }
