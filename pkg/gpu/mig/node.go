@@ -19,6 +19,7 @@ package mig
 import (
 	"fmt"
 	"github.com/nebuly-ai/nos/pkg/gpu"
+	"github.com/nebuly-ai/nos/pkg/util"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 )
@@ -219,4 +220,42 @@ func (n *Node) Clone() interface{} {
 		cloned.GPUs[i] = n.GPUs[i].Clone()
 	}
 	return &cloned
+}
+
+// FreeGeometry returns the aggregated free MIG devices across all GPUs.
+func (n *Node) FreeGeometry() map[gpu.Slice]int {
+	res := make(map[gpu.Slice]int)
+	for _, g := range n.GPUs {
+		for profile, quantity := range g.GetFreeMigDevices() {
+			res[profile] += quantity
+		}
+	}
+	return res
+}
+
+// ReleaseProfiles frees used MIG devices on this node, if available.
+// Returns false if the node does not have enough used capacity for the given profiles.
+func (n *Node) ReleaseProfiles(profiles map[ProfileName]int) bool {
+	for profile, quantity := range profiles {
+		remaining := quantity
+		for i := range n.GPUs {
+			g := &n.GPUs[i]
+			available := g.GetUsedMigDevices()[profile]
+			if available == 0 {
+				continue
+			}
+			toRelease := util.Min(available, remaining)
+			if !g.ReleaseProfiles(map[ProfileName]int{profile: toRelease}) {
+				return false
+			}
+			remaining -= toRelease
+			if remaining == 0 {
+				break
+			}
+		}
+		if remaining > 0 {
+			return false
+		}
+	}
+	return true
 }

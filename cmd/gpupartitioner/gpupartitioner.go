@@ -108,7 +108,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	migController := gpupartitioner.NewController(mgr.GetClient(), mgr.GetScheme(), requeueInterval)
+	migController := gpupartitioner.NewController(mgr.GetClient(), mgr.GetScheme(), requeueInterval, config.PreemptionEnabled)
 	if err = migController.SetupWithManager(mgr, constant.MigPartitionerControllerName); err != nil {
 		setupLog.Error(err, "unable to create MIG controller")
 		os.Exit(1)

@@ -162,7 +162,7 @@ func TestController_ReconcileAggregatesPodsAndRequeues(t *testing.T) {
 		WithObjects(node.DeepCopy(), podWithPresentProfile, podNeedingNewProfile).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute)
+	controller := NewController(client, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "test-plan-id" })
 
 	result, err := controller.Reconcile(context.Background(), ctrl.Request{
@@ -196,7 +196,7 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second)
+	controller := NewController(client, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string {
 		t.Fatal("planIDSource should not be called when profiles are already present")
 		return ""
@@ -208,6 +208,37 @@ func TestController_ReconcileSkipsWhenProfilesAlreadyPresent(t *testing.T) {
 
 	var patchedNode v1.Node
 	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available")
+}
+
+func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+
+	node := newA100NodeWithIdle1gAndUsed3g()
+	node.Spec.Taints = []v1.Taint{{
+		Key:    constant.RepartitioningTaintKey,
+		Value:  constant.RepartitioningTaintValue,
+		Effect: v1.TaintEffectNoSchedule,
+	}}
+	pod := newPendingUnschedulableMigPod("pod-needing-existing-profile", map[v1.ResourceName]string{
+		gpumig.Profile1g10gb.AsResourceName(): "1",
+	})
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), pod).
+		Build()
+
+	controller := NewController(client, scheme, 30*time.Second, false)
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+
+	assert.Empty(t, patchedNode.Spec.Taints, "repartitioning taint should be cleared once requested profiles are already present")
 	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available")
 }
 
@@ -225,7 +256,7 @@ func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 5*time.Second)
+	controller := NewController(client, scheme, 5*time.Second, false)
 	controller.InjectFunc(func() string { return "freed-plan-id" })
 
 	// First reconcile: 7g slice is in use, so repartition cannot happen.
@@ -276,7 +307,7 @@ func TestController_ReconcileSkipsLowerPriorityWhenHigherCannotBeSatisfied(t *te
 		WithObjects(node.DeepCopy(), highPriorityPod, lowPriorityPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute)
+	controller := NewController(client, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "plan-id-should-not-be-set" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -311,7 +342,7 @@ func TestController_ReconcileOrdersByAgeWithinPriority(t *testing.T) {
 		WithObjects(node.DeepCopy(), youngerPod, olderPod).
 		Build()
 
-	controller := NewController(client, scheme, time.Minute)
+	controller := NewController(client, scheme, time.Minute, false)
 	controller.InjectFunc(func() string { return "age-ordered-plan" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
@@ -338,7 +369,7 @@ func TestController_ReconcileRecreatesSpecWhenMissing(t *testing.T) {
 		WithObjects(node.DeepCopy(), pod).
 		Build()
 
-	controller := NewController(client, scheme, 30*time.Second)
+	controller := NewController(client, scheme, 30*time.Second, false)
 	controller.InjectFunc(func() string { return "recreated-plan-id" })
 
 	_, err := controller.Reconcile(context.Background(), ctrl.Request{})

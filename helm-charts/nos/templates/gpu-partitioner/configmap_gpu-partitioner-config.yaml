@@ -24,6 +24,7 @@ data:
      name: {{ .Values.gpuPartitioner.devicePlugin.config.name }}
      namespace: {{ .Values.gpuPartitioner.devicePlugin.config.namespace }}
     devicePluginDelaySeconds: {{ .Values.gpuPartitioner.devicePlugin.configUpdateDelaySeconds }}
+    preemptionEnabled: {{ .Values.gpuPartitioner.preemption.enabled }}
 
     {{- if .Values.gpuPartitioner.scheduler.config }}
     {{- if lookup "v1" "ConfigMap" .Release.Namespace .Values.gpuPartitioner.scheduler.config.name }}

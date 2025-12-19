@@ -33,6 +33,7 @@ type GpuPartitionerConfig struct {
 	RequeueIntervalSeconds                 time.Duration    `json:"requeueIntervalSeconds"`
 	DevicePluginConfigMap                  NamespacedObject `json:"devicePluginConfigMap,omitempty"`
 	DevicePluginDelaySeconds               time.Duration    `json:"devicePluginDelaySeconds"`
+	PreemptionEnabled                      bool             `json:"preemptionEnabled"`
 }
 
 func (c *GpuPartitionerConfig) Validate() error {
