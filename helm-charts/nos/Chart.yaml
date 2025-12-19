@@ -4,8 +4,8 @@ description: The open-source platform for running AI workloads on k8s in an opti
   utilization and workload performance.
 
 type: application
-version: 0.0.7
-appVersion: "0.0.7"
+version: 0.0.8
+appVersion: "0.0.8"
 
 sources:
   - https://github.com/nebuly-ai/nos
