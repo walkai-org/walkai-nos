@@ -28,11 +28,10 @@ You can install the [NVIDIA GPU Operator](https://github.com/NVIDIA/gpu-operator
 helm install --wait --generate-name \
      -n gpu-operator --create-namespace \
      nvidia/gpu-operator --version v22.9.0 \
-     --set driver.enabled=true \
-     --set migManager.enabled=false \
-     --set mig.strategy=mixed \
-     --set toolkit.enabled=true
+     -f values.yml
 ```
+
+In values.yml, you must pass the configuration found in [values.yml](/config/gpu-operator/values.yaml)
 
 Note that the GPU Operator will automatically install a recent version of NVIDIA Drivers and CUDA on all the GPU-enabled nodes of your cluster, so you don't have to manually install them.
 

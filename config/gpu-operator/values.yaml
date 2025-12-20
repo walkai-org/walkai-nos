@@ -1,0 +1,61 @@
+#
+# Values overlay for NVIDIA GPU Operator (v22.9.0) to allow its DaemonSets
+# (device plugin, GFD, MIG manager, etc.) to schedule on nodes tainted while
+# the GPU partitioner is repartitioning.
+#
+# Usage (example):
+#   helm install --wait --generate-name \
+#     -n gpu-operator --create-namespace \
+#     nvidia/gpu-operator --version v22.9.0 \
+#     -f config/gpu-operator/repartitioning-tolerations.values.yaml
+#
+
+driver:
+  enabled: false
+
+migManager:
+  enabled: false
+
+mig:
+  strategy: mixed
+
+toolkit:
+  enabled: true
+
+operator:
+  tolerations:
+    - key: "node-role.kubernetes.io/master"
+      operator: "Equal"
+      value: ""
+      effect: "NoSchedule"
+    - key: nos.nebuly.com/repartitioning
+      operator: Equal
+      value: planned
+      effect: NoSchedule
+
+daemonsets:
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - key: nos.nebuly.com/repartitioning
+      operator: Equal
+      value: planned
+      effect: NoSchedule
+
+# Ensure GPU Feature Discovery (NFD) workers can run on tainted GPU nodes.
+node-feature-discovery:
+  worker:
+    tolerations:
+      - key: "node-role.kubernetes.io/master"
+        operator: "Equal"
+        value: ""
+        effect: "NoSchedule"
+      - key: "nvidia.com/gpu"
+        operator: "Equal"
+        value: "present"
+        effect: "NoSchedule"
+      - key: nos.nebuly.com/repartitioning
+        operator: Equal
+        value: planned
+        effect: NoSchedule
