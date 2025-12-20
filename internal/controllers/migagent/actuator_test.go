@@ -21,11 +21,13 @@ import (
 	"fmt"
 	"github.com/nebuly-ai/nos/internal/controllers/migagent/plan"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
+	"github.com/nebuly-ai/nos/pkg/constant"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/resource"
 	migtest "github.com/nebuly-ai/nos/pkg/test/mocks/mig"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -179,7 +181,25 @@ func (fakeDevicePluginClient) Restart(ctx context.Context, nodeName string, time
 	return nil
 }
 
+type fakeDevicePluginClientError struct {
+	err error
+}
+
+func (f fakeDevicePluginClientError) Restart(ctx context.Context, nodeName string, timeout time.Duration) error {
+	return f.err
+}
+
 func TestMigActuator_apply_RollbackDeletedResources(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+		},
+	}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node.DeepCopy()).Build()
+
 	migClient := &fakeMigClient{
 		createErrs: []error{
 			gpu.GenericErr.Errorf("boom"),
@@ -187,8 +207,10 @@ func TestMigActuator_apply_RollbackDeletedResources(t *testing.T) {
 		},
 	}
 	actuator := MigActuator{
+		Client:       k8sClient,
 		migClient:    migClient,
 		devicePlugin: fakeDevicePluginClient{},
+		nodeName:     node.Name,
 	}
 	plan := plan.MigConfigPlan{
 		DeleteOperations: plan.DeleteOperationList{
@@ -278,6 +300,104 @@ func TestMigActuator_apply_ResetSpecOnUsedDelete(t *testing.T) {
 	assert.Empty(t, updated.Annotations[v1alpha1.AnnotationPartitioningPlan])
 	for k := range updated.Annotations {
 		assert.NotContains(t, k, v1alpha1.AnnotationGpuSpecPrefix)
+	}
+}
+
+func TestMigActuator_apply_ClearsTaintOnCreateFailure(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+			Labels: map[string]string{
+				v1.LabelHostname: "node-1",
+			},
+		},
+		Spec: v1.NodeSpec{
+			Taints: []v1.Taint{{
+				Key:    constant.RepartitioningTaintKey,
+				Value:  constant.RepartitioningTaintValue,
+				Effect: v1.TaintEffectNoSchedule,
+			}},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node.DeepCopy()).Build()
+	migClient := &fakeMigClient{createErrs: []error{fmt.Errorf("boom")}}
+
+	actuator := MigActuator{
+		Client:       k8sClient,
+		migClient:    migClient,
+		devicePlugin: fakeDevicePluginClient{},
+		nodeName:     node.Name,
+	}
+
+	p := plan.MigConfigPlan{
+		CreateOperations: plan.CreateOperationList{
+			{
+				MigProfile: mig.Profile{GpuIndex: 0, Name: mig.Profile1g10gb},
+				Quantity:   1,
+			},
+		},
+	}
+
+	_, err := actuator.apply(context.Background(), p)
+	assert.Error(t, err)
+
+	var updated v1.Node
+	require.NoError(t, k8sClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, &updated))
+	for _, tnt := range updated.Spec.Taints {
+		require.NotEqual(t, constant.RepartitioningTaintKey, tnt.Key, "repartitioning taint should be cleared on apply failure")
+	}
+}
+
+func TestMigActuator_apply_ClearsTaintWhenPluginRestartFails(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, clientgoscheme.AddToScheme(scheme))
+
+	node := &v1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-1",
+			Labels: map[string]string{
+				v1.LabelHostname: "node-1",
+			},
+		},
+		Spec: v1.NodeSpec{
+			Taints: []v1.Taint{{
+				Key:    constant.RepartitioningTaintKey,
+				Value:  constant.RepartitioningTaintValue,
+				Effect: v1.TaintEffectNoSchedule,
+			}},
+		},
+	}
+
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node.DeepCopy()).Build()
+	migClient := &fakeMigClient{}
+
+	actuator := MigActuator{
+		Client:       k8sClient,
+		migClient:    migClient,
+		devicePlugin: fakeDevicePluginClientError{err: fmt.Errorf("restart failed")},
+		nodeName:     node.Name,
+	}
+
+	p := plan.MigConfigPlan{
+		CreateOperations: plan.CreateOperationList{
+			{
+				MigProfile: mig.Profile{GpuIndex: 0, Name: mig.Profile1g10gb},
+				Quantity:   1,
+			},
+		},
+	}
+
+	_, err := actuator.apply(context.Background(), p)
+	assert.Error(t, err)
+
+	var updated v1.Node
+	require.NoError(t, k8sClient.Get(context.Background(), client.ObjectKey{Name: node.Name}, &updated))
+	for _, tnt := range updated.Spec.Taints {
+		require.NotEqual(t, constant.RepartitioningTaintKey, tnt.Key, "repartitioning taint should be cleared on plugin restart failure")
 	}
 }
 

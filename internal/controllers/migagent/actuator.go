@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/nebuly-ai/nos/internal/controllers/migagent/plan"
 	"github.com/nebuly-ai/nos/pkg/api/nos.nebuly.com/v1alpha1"
+	"github.com/nebuly-ai/nos/pkg/constant"
 	"github.com/nebuly-ai/nos/pkg/gpu"
 	"github.com/nebuly-ai/nos/pkg/gpu/mig"
 	"github.com/nebuly-ai/nos/pkg/util/predicate"
@@ -205,12 +206,14 @@ func (a *MigActuator) apply(ctx context.Context, plan plan.MigConfigPlan) (ctrl.
 	if restartRequired {
 		if err := a.restartNvidiaDevicePlugin(ctx); err != nil {
 			logger.Error(err, "unable to restart nvidia device plugin")
+			a.clearRepartitioningTaint(ctx)
 			return ctrl.Result{}, err
 		}
 	}
 
 	// Check if any error happened
 	if atLeastOneErr {
+		a.clearRepartitioningTaint(ctx)
 		return ctrl.Result{}, fmt.Errorf("at least one operation failed while applying desired MIG config")
 	}
 
@@ -348,4 +351,33 @@ func (a *MigActuator) resetNodeSpec(ctx context.Context) error {
 	}
 
 	return a.Client.Patch(ctx, updated, client.MergeFrom(&node))
+}
+
+func (a *MigActuator) clearRepartitioningTaint(ctx context.Context) {
+	logger := a.newLogger(ctx)
+	var node v1.Node
+	if err := a.Client.Get(ctx, types.NamespacedName{Name: a.nodeName}, &node); err != nil {
+		logger.Error(err, "unable to fetch node while clearing repartitioning taint")
+		return
+	}
+
+	original := node.DeepCopy()
+	newTaints := make([]v1.Taint, 0, len(node.Spec.Taints))
+	var changed bool
+	for _, t := range node.Spec.Taints {
+		if t.Key == constant.RepartitioningTaintKey {
+			changed = true
+			continue
+		}
+		newTaints = append(newTaints, t)
+	}
+
+	if !changed {
+		return
+	}
+
+	node.Spec.Taints = newTaints
+	if err := a.Client.Patch(ctx, &node, client.MergeFrom(original)); err != nil {
+		logger.Error(err, "unable to clear repartitioning taint")
+	}
 }
