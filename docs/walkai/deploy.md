@@ -51,11 +51,10 @@ helm repo add nvidia https://helm.ngc.nvidia.com/nvidia && helm repo update
 helm install --wait --generate-name \
      -n gpu-operator --create-namespace \
      nvidia/gpu-operator --version v22.9.0 \
-     --set driver.enabled=false \
-     --set migManager.enabled=false \
-     --set mig.strategy=mixed \
-     --set toolkit.enabled=true
+     -f values.yml
 ```
+
+In values.yml, you must pass the configuration found in [values.yml](/config/gpu-operator/values.yaml)
 
 ### Install cert-manager
 ```bash
