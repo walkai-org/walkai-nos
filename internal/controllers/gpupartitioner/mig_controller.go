@@ -75,7 +75,7 @@ func NewController(
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;patch
-//+kubebuilder:rbac:groups="core",resources=pods/eviction,verbs=create
+//+kubebuilder:rbac:groups="",resources=pods/eviction,verbs=create
 
 func (c *Controller) Reconcile(ctx context.Context, _ ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx)
