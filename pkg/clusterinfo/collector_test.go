@@ -332,3 +332,30 @@ func Test_buildPodSummaries(t *testing.T) {
 		t.Fatalf("unexpected diff (-want +got):\n%s", diff)
 	}
 }
+
+func Test_podStatus_TerminatingOverridesPhase(t *testing.T) {
+	t.Parallel()
+	deletionTime := metav1.NewTime(time.Date(2023, 1, 2, 10, 0, 0, 0, time.UTC))
+	pod := v1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			DeletionTimestamp: &deletionTime,
+		},
+		Status: v1.PodStatus{
+			Phase: v1.PodRunning,
+			ContainerStatuses: []v1.ContainerStatus{
+				{
+					Name: "c",
+					State: v1.ContainerState{
+						Running: &v1.ContainerStateRunning{},
+					},
+				},
+			},
+		},
+	}
+
+	got := podStatus(pod)
+	want := "Terminating"
+	if got != want {
+		t.Fatalf("expected %q, got %q", want, got)
+	}
+}

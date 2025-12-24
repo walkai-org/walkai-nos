@@ -215,6 +215,9 @@ func buildPodSummaries(pods []v1.Pod) []PodSummary {
 }
 
 func podStatus(pod v1.Pod) string {
+	if pod.DeletionTimestamp != nil {
+		return "Terminating"
+	}
 	if status := containerStatusesReason(pod.Status.ContainerStatuses); status != "" {
 		return status
 	}

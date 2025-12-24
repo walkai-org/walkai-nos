@@ -43,7 +43,7 @@ You can find all the available configuration values in the Chart [documentation]
 
 ```bash
 helm install oci://ghcr.io/walkai-org/helm-charts/nos \
-  --version 0.0.8 \
+  --version 0.0.9 \
   --namespace nos-system \
   --generate-name \
   --create-namespace
