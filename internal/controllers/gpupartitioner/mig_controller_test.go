@@ -248,6 +248,50 @@ func TestController_ReconcileRemovesRepartitioningTaintWhenProfilesAvailable(t *
 	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available")
 }
 
+func TestController_ReconcileClearsTaintWhenHeadPodSatisfiedButLowerPending(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, v1.AddToScheme(scheme))
+	require.NoError(t, policyv1.AddToScheme(scheme))
+
+	node := newA100NodeWith3211AndUsed2g()
+	node.Spec.Taints = []v1.Taint{{
+		Key:    constant.RepartitioningTaintKey,
+		Value:  constant.RepartitioningTaintValue,
+		Effect: v1.TaintEffectNoSchedule,
+	}}
+
+	high := newPendingUnschedulableMigPod("high-priority-3g", map[v1.ResourceName]string{
+		gpumig.Profile3g40gb.AsResourceName(): "1",
+	})
+	highPriority := int32(2000)
+	high.Spec.Priority = &highPriority
+	high.CreationTimestamp = metav1.NewTime(time.Now().Add(-time.Minute))
+
+	low := newPendingUnschedulableMigPod("low-priority-4g", map[v1.ResourceName]string{
+		gpumig.Profile4g40gb.AsResourceName(): "1",
+	})
+	lowPriority := int32(0)
+	low.Spec.Priority = &lowPriority
+	low.CreationTimestamp = metav1.NewTime(time.Now())
+
+	client := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(node.DeepCopy(), high, low).
+		Build()
+	kubeClient := fakekube.NewSimpleClientset(node.DeepCopy(), high, low)
+
+	controller := NewController(client, kubeClient, scheme, 30*time.Second, false)
+
+	_, err := controller.Reconcile(context.Background(), ctrl.Request{})
+	require.NoError(t, err)
+
+	var patchedNode v1.Node
+	require.NoError(t, client.Get(context.Background(), types.NamespacedName{Name: node.Name}, &patchedNode))
+
+	assert.Empty(t, patchedNode.Spec.Taints, "repartitioning taint should be cleared once the highest-priority feasible pod is satisfiable")
+	assert.Empty(t, patchedNode.Annotations[v1alpha1.AnnotationPartitioningPlan], "plan should not be set when profiles are already available for the head pod")
+}
+
 func TestController_ReconcilePlansOnceResourcesAreFreed(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, v1.AddToScheme(scheme))
@@ -593,6 +637,33 @@ func newA100NodeWithIdle1gAndUsed3g() *v1.Node {
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "node-a100",
+			Labels: map[string]string{
+				constant.LabelNvidiaProduct:   gpu.GPUModel_A100_PCIe_80GB.String(),
+				constant.LabelNvidiaCount:     "1",
+				v1alpha1.LabelGpuPartitioning: gpu.PartitioningKindMig.String(),
+			},
+			Annotations: annotations,
+		},
+	}
+}
+
+func newA100NodeWith3211AndUsed2g() *v1.Node {
+	annotations := map[string]string{
+		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile3g40gb.String(), resource.StatusFree): "1",
+		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile2g20gb.String(), resource.StatusUsed): "1",
+		fmt.Sprintf(v1alpha1.AnnotationGpuStatusFormat, 0, gpumig.Profile1g10gb.String(), resource.StatusFree): "2",
+		fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile3g40gb.String()):                        "1",
+		fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile2g20gb.String()):                        "1",
+		fmt.Sprintf(v1alpha1.AnnotationGpuSpecFormat, 0, gpumig.Profile1g10gb.String()):                        "2",
+	}
+
+	return &v1.Node{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "Node",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "node-a100-3211-used-2g",
 			Labels: map[string]string{
 				constant.LabelNvidiaProduct:   gpu.GPUModel_A100_PCIe_80GB.String(),
 				constant.LabelNvidiaCount:     "1",

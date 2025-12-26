@@ -318,10 +318,6 @@ func (c *Controller) updateNodeGeometry(
 		return false, err
 	}
 
-	if err := c.removeRepartitioningTaint(ctx, &node); err != nil {
-		return false, err
-	}
-
 	return true, nil
 }
 
