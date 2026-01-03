@@ -60,7 +60,7 @@ In values.yml, you must pass the configuration found in [values.yml](/config/gpu
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml
 ```
-### Create a values.yml to override cluster_info_exporter values
+### Create a values.yml to override cluster_info_exporter values and configure preemption 
 ```yml
 clusterInfoExporter:
     enabled: true
@@ -71,6 +71,9 @@ clusterInfoExporter:
     secret:
       create: true
       apiToken: "<your-token>"
+gpuPartitioner:
+  preemption:
+    enabled: true
 ```
 
 ### Install walkai-nos
@@ -83,7 +86,6 @@ helm install oci://ghcr.io/walkai-org/helm-charts/nos \
   --create-namespace \
   -f values.yml
 ```
-
 ### Label the node with
 ```bash
 kubectl label nodes walkai-dev "nos.nebuly.com/gpu-partitioning=mig"
@@ -93,4 +95,13 @@ kubectl label nodes walkai-dev "nos.nebuly.com/gpu-partitioning=mig"
 The clusterinfoexporter kustomization now also provisions the `walkai` namespace together with an `api-client` service account, the `discovery-minimal` and `admin` ClusterRoleBindings, and the long-lived `api-client-permanent-token` Secret. After the manifests are applied you can retrieve the token that your API needs with:
 ```bash
 kubectl get secret api-client-permanent-token -n walkai   -o jsonpath='{.data.token}' | base64 -d; echo
+```
+
+```bash
+helm upgrade nos-1766770632 oci://ghcr.io/walkai-org/helm-charts/nos \
+  --version 0.0.9 \
+  --namespace nos-system \
+  --generate-name \
+  --create-namespace \
+  -f values.yml
 ```
